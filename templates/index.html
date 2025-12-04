@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>SGA - Pacientes</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th { background-color: #4CAF50; color: white; padding: 10px; text-align: left; }
+        td { border: 1px solid #ddd; padding: 8px; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        h1 { color: #333; }
+        .sucesso { color: green; font-weight: bold; padding: 10px; border: 1px solid green; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <h1>Gestão de Pacientes (SGA)</h1>
+    
+    <div class="sucesso">
+        ✅ Conectado ao servidor: CARLOSSERVER
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nome</th>
+                <th>NIF</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in lista %}
+            <tr>
+                <td>{{ p.id_paciente }}</td>
+                <td>{{ p.dados_pessoais.nome }}</td>
+                <td>{{ p.nif }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
