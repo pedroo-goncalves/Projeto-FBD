@@ -9,13 +9,9 @@ app = Flask(__name__)
 load_dotenv()
 
 server = os.getenv("SERVER")
-print(os.getenv("SERVER"))
 database = os.getenv("DATABASE")
-print(os.getenv("DATABASE"))
 username = os.getenv("UID")
-print(os.getenv("UID"))
 password = os.getenv("PWD")
-print(os.getenv("PWD"))
 
 params = urllib.parse.quote_plus(
     f'DRIVER={{ODBC Driver 17 for SQL Server}};'
