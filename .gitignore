@@ -208,5 +208,9 @@ __marimo__/
 
 #venv
 .venv
+
 #.env
 .env
+
+#desktop.ini
+desktop.ini
