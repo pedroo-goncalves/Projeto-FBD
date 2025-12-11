@@ -1,13 +1,21 @@
+import os
+from dotenv import load_dotenv, dotenv_values 
+
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 import urllib
 
 app = Flask(__name__)
+load_dotenv()
 
-server = r'tcp:mednat.ieeta.pt\SQLSERVER,8101' 
-database = 'p2g1'
-username = 'p2g1'
-password = 'I1zcnGDrVvJZw5'
+server = os.getenv("SERVER")
+print(os.getenv("SERVER"))
+database = os.getenv("DATABASE")
+print(os.getenv("DATABASE"))
+username = os.getenv("UID")
+print(os.getenv("UID"))
+password = os.getenv("PWD")
+print(os.getenv("PWD"))
 
 params = urllib.parse.quote_plus(
     f'DRIVER={{ODBC Driver 17 for SQL Server}};'
