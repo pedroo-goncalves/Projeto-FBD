@@ -16,3 +16,16 @@ def get_db_connection():
         f'PWD={os.getenv("PWD")};'
     )
     return pyodbc.connect(conn_str)
+
+def test_connection():
+    try:
+        conn = get_db_connection()
+        print("Conexão realizada com sucesso.")
+        return True
+    except Exception as e:
+        print("Erro na conexão.")
+        return False
+    
+if __name__ == "__main__":
+    print("A testar a conexão...")
+    test_connection()
