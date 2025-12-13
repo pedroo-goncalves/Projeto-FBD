@@ -19,7 +19,7 @@ def get_db_connection():
 
 def test_connection():
     try:
-        conn = get_db_connection()
+        get_db_connection()
         print("Conexão realizada com sucesso.")
         return True
     except Exception as e:
