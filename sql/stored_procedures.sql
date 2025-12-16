@@ -1,3 +1,5 @@
+-- Template from: https://learn.microsoft.com/en-us/sql/relational-databases/stored-procedures/create-a-stored-procedure?view=sql-server-ver17
+
 CREATE PROCEDURE sp_guardarPessoa
     @NIF CHAR(9),
     @nome VARCHAR(50),
