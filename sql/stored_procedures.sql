@@ -342,64 +342,61 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    BEGIN TRANSACTION;
     BEGIN TRY
-        -- 1. Obter o NIF do paciente associado a este pedido
-        DECLARE @nif_paciente CHAR(9);
-        SELECT @nif_paciente = nif_paciente FROM SGA_PEDIDO WHERE id_pedido = @id_pedido;
+        BEGIN TRANSACTION;
+            
+            -- 1. Obter o id_paciente diretamente da tabela SGA_PEDIDO
+            DECLARE @id_paciente INT;
+            SELECT @id_paciente = id_paciente FROM SGA_PEDIDO WHERE id_pedido = @id_pedido;
 
-        -- 2. Atualizar o estado do pedido
-        UPDATE SGA_PEDIDO 
-        SET estado = 'Aceite', 
-            id_aceitante = @id_trabalhador 
-        WHERE id_pedido = @id_pedido AND estado = 'Pendente';
+            -- 2. Atualizar o estado para 'aceite' e definir o aceitante
+            UPDATE SGA_PEDIDO 
+            SET estado = 'aceite', 
+                id_aceitante = @id_trabalhador 
+            WHERE id_pedido = @id_pedido AND estado = 'pendente';
 
-        -- 3. Obter o ID interno do paciente
-        DECLARE @id_paciente INT;
-        SELECT @id_paciente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif_paciente;
-
-        -- 4. Criar o Vínculo Clínico (A "raiz" da relação médico-paciente)
-        -- Se o vínculo já existir, o SQL ignora ou podes definir um novo tipo
-        IF NOT EXISTS (SELECT 1 FROM SGA_VINCULO_CLINICO WHERE id_trabalhador = @id_trabalhador AND id_paciente = @id_paciente)
-        BEGIN
-            INSERT INTO SGA_VINCULO_CLINICO (id_trabalhador, id_paciente, tipo_vinculo)
-            VALUES (@id_trabalhador, @id_paciente, 'Responsável via Inbox');
-        END
-
+            -- 3. Criar o Vínculo Clínico automático na tabela intermédia
+            IF @id_paciente IS NOT NULL
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM SGA_VINCULO_CLINICO 
+                               WHERE id_trabalhador = @id_trabalhador AND id_paciente = @id_paciente)
+                BEGIN
+                    INSERT INTO SGA_VINCULO_CLINICO (id_trabalhador, id_paciente, tipo_vinculo)
+                    VALUES (@id_trabalhador, @id_paciente, 'Responsável via Inbox');
+                END
+            END
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
-        ROLLBACK TRANSACTION;
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
         THROW;
     END CATCH
 END;
+GO
 
-
-CREATE OR ALTER PROCEDURE sp_listarEquipa
+CREATE OR ALTER PROCEDURE sp_listarEquipa   
 AS
 /*
 -- ==========================================================
 -- Autor:       Pedro Gonçalves
 -- Create Date: 18/12/2025
--- Descrição:   Procedure para mostrar todos os funcionários do sistema na página equipa.html
+-- Descrição:   Procedure para mostrar todos os funcionários ativos do sistema na página equipa.html
 -- ==========================================================
 */
-
 BEGIN
     SET NOCOUNT ON;
-    SELECT P.nome, P.email, P.telefone, T.tipo_perfil,
-
-        -- Caso não tenhas a coluna cedula_profissional, podes usar um placeholder ou adicioná-la à tabela
-        ISNULL(T.cedula_profissional, '00000') AS cedula_profissional 
-
+    SELECT 
+        P.nome,                                  -- [0]
+        P.email,                                 -- [1]
+        P.telefone,                              -- [2]
+        T.tipo_perfil,                           -- [3]
+        ISNULL(T.cedula_profissional, '-----'),  -- [4]
+        T.id_trabalhador                         -- [5] 
     FROM SGA_TRABALHADOR T
     JOIN SGA_PESSOA P ON T.NIF = P.NIF
-
-    WHERE T.ativo = 1; -- Apenas funcionários ativos
-
+    WHERE T.ativo = 1;
 END;
 GO
-
 
 CREATE OR ALTER PROCEDURE sp_ativarFuncionario
     @id_trabalhador INT
@@ -445,6 +442,7 @@ BEGIN
     ORDER BY P.nome;
 END;
 GO
+
 
 CREATE OR ALTER PROCEDURE sp_criarFuncionario
     @NIF CHAR(9),
@@ -631,18 +629,29 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- Validação: Admin vê tudo, o Colaborador vê apenas quem está a seu cargo
+
+    -- 1. VALIDAÇÃO DE SEGURANÇA
+    -- Só entra se for ADMIN OU se houver um vínculo na tabela do Vinculo
     IF @perfil <> 'admin' AND NOT EXISTS (
         SELECT 1 FROM SGA_VINCULO_CLINICO 
         WHERE id_paciente = @id_paciente AND id_trabalhador = @id_trabalhador
     )
     BEGIN
-        THROW 50005, 'Acesso Negado: Não tem permissão clínica para este paciente.', 1;
+        -- Bloqueio para quem não é responsável pelo paciente
+        THROW 50005, 'Acesso Negado: Não tem este paciente a seu cargo.', 1;
     END
 
+    -- 2. ACESSO TOTAL AOS DADOS
     SELECT 
-        Pac.id_paciente, Pess.nome, Pess.NIF, Pess.data_nascimento, 
-        Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes, Pac.ativo
+        Pac.id_paciente,        -- [0]
+        Pess.nome,              -- [1]
+        Pess.NIF,               -- [2]
+        Pess.data_nascimento,   -- [3]
+        Pess.telefone,          -- [4]
+        Pess.email,             -- [5]
+        Pac.data_inscricao,     -- [6]
+        Pac.observacoes,        -- [7]
+        Pac.ativo               -- [8]
     FROM SGA_PACIENTE Pac
     JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
     WHERE Pac.id_paciente = @id_paciente;
@@ -651,8 +660,7 @@ GO
 
 
 CREATE OR ALTER PROCEDURE sp_obterDetalhesTrabalhador
-    @id_trabalhador_alvo INT,
-    @perfil_quem_pede VARCHAR(20)
+    @id_trabalhador INT
 AS
 /*
 -- ==========================================================
@@ -664,12 +672,6 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-
-    IF @perfil_quem_pede <> 'admin'
-    BEGIN
-        THROW 50006, 'Acesso Negado: Apenas administradores podem consultar detalhes da equipa.', 1;
-    END
-
     SELECT 
         P.nome,                  -- [0]
         P.email,                 -- [1]
@@ -677,19 +679,17 @@ BEGIN
         T.tipo_perfil,           -- [3]
         T.cedula_profissional,   -- [4]
         P.NIF,                   -- [5]
-        -- FORMATAMOS AQUI PARA TEXTO:
-        ISNULL(FORMAT(P.data_nascimento, 'dd/MM/yyyy'), '---') AS data_nascimento, -- [6]
+        P.data_nascimento,       -- [6]
         T.id_trabalhador,        -- [7]
         T.ativo,                 -- [8]
-        -- FORMATAMOS AQUI TAMBÉM:
-        ISNULL(FORMAT(T.data_inicio, 'dd/MM/yyyy'), '---') AS data_inicio,         -- [9]
-        C.contrato_trabalho,     -- [10]
-        S.ordem,                 -- [11]
-        S.remuneracao            -- [12]
+        T.data_inicio,           -- [9]
+        C.contrato_trabalho,     -- [10] (Da tabela SGA_CONTRATADO)
+        S.ordem,                 -- [11] (Da tabela SGA_PRESTADOR_SERVICO)
+        S.remuneracao            -- [12] (Da tabela SGA_PRESTADOR_SERVICO)
     FROM SGA_TRABALHADOR T
     JOIN SGA_PESSOA P ON T.NIF = P.NIF
     LEFT JOIN SGA_CONTRATADO C ON T.id_trabalhador = C.id_trabalhador
     LEFT JOIN SGA_PRESTADOR_SERVICO S ON T.id_trabalhador = S.id_trabalhador
-    WHERE T.id_trabalhador = @id_trabalhador_alvo;
+    WHERE T.id_trabalhador = @id_trabalhador;
 END;
 GO
