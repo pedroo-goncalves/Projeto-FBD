@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8"><title>Relatórios - SGA Psicologia</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/pacientes">Pacientes</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/equipa">Equipa</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="/relatorios">Relatórios</a></li>
+                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3" href="/logout">Sair ({{ nome_user }})</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-md-12">
+                <h3 class="text-secondary fw-light mb-4"><i class="fa-solid fa-file-medical me-2"></i>Histórico de Relatórios</h3>
+                <div class="card shadow-sm">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Paciente</th>
+                                    <th>Data</th>
+                                    <th>Tipo</th>
+                                    <th>Autor</th>
+                                    <th class="text-end">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in relatorios %}
+                                <tr>
+                                    <td><strong>{{ r[1] }}</strong></td>
+                                    <td>{{ r[2] }}</td>
+                                    <td><span class="badge bg-info text-dark">{{ r[3] }}</span></td>
+                                    <td>{{ r[4] }}</td>
+                                    <td class="text-end"><button class="btn btn-sm btn-outline-primary">Ver Detalhes</button></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
