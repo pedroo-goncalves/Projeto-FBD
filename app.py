@@ -7,11 +7,27 @@ from dotenv import load_dotenv
 # Importação da conexão confisgurada no teu projeto
 from persistence.session import get_db_connection 
 
+# Imports dos pacientes
+from persistence.pacientes import contar_pacientes
+
+# Imports dos pedidos
+from persistence.pedidos import contar_pedidos_pendentes
+
+# Imports dos atendimentos
+from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres
+
+# Imports dos trabalhadores
+from persistence.trabalhadores import medicos_agenda_dropdown
+
 load_dotenv()
 
 app = Flask(__name__)
 # A secret_key permite o funcionamento das mensagens flash e sessões
 app.secret_key = os.getenv('SECRET_KEY', 'chave-de-seguranca-padrao-123')
+
+
+def is_logged_in():
+    return 'user_id' in session
 
 # ------------------------------------------------------------------
 # ROTA 1: LOGIN (Validação SHA256 Pura)
@@ -65,7 +81,7 @@ def logout():
 @app.route('/')
 @app.route('/pacientes')
 def pacientes():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if not is_logged_in(): return redirect(url_for('login'))
 
     lista_pacientes = []
     try:
@@ -87,7 +103,7 @@ def pacientes():
 # ------------------------------------------------------------------
 @app.route('/criar_paciente', methods=['POST'])
 def criar_paciente():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if not is_logged_in(): return redirect(url_for('login'))
 
     nome = request.form.get('nome')
     nif = request.form.get('nif')
@@ -119,7 +135,7 @@ def criar_paciente():
 # ------------------------------------------------------------------
 @app.route('/relatorios')
 def relatorios():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if not is_logged_in(): return redirect(url_for('login'))
     
     lista_relatorios = []
     try:
@@ -140,13 +156,76 @@ def relatorios():
 # ------------------------------------------------------------------
 @app.route('/equipa')
 def equipa():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if not is_logged_in(): return redirect(url_for('login'))
     return render_template('equipa.html', nome_user=session.get('user_name'))
+
+
+
+
+
+
+
 
 @app.route('/agenda')
 def agenda():
-    if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('agenda.html', nome_user=session.get('user_name'))
+    if not is_logged_in(): return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        lista_medicos = medicos_agenda_dropdown(cursor)
+    except Exception as e:
+        print(f"erro: {e}")
+        lista_medicos = []
+
+
+    return render_template('agenda.html', nome_user=session.get('user_name'),
+                           medicos=lista_medicos)
+
+from flask import jsonify, request # Importante adicionar jsonify e request
+
+@app.route('/api/horarios-disponiveis')
+def api_horarios():
+    # O JavaScript vai enviar ?medico=1&data=2025-12-20
+    id_medico = request.args.get('medico')
+    data = request.args.get('data')
+
+    if not id_medico or not data:
+        return jsonify([]) # Retorna lista vazia se faltar dados
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    slots = obter_horarios_livres(cursor, id_medico, data)
+    conn.close()
+
+    return jsonify(slots) # O Python transforma a lista em JSON para o JS ler
+
+
+@app.route('/dashboard')
+def dashboard():
+    if not is_logged_in(): return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try: 
+        total_p = contar_pacientes(cursor)
+        total_pendentes = contar_pedidos_pendentes(cursor)
+        consultas_hoje = contar_atendimentos_hoje(cursor)
+
+    except Exception as e:
+        print(f"Erro: {e}")
+        total_p = 0
+        total_pendentes = 0
+        consultas_hoje = {'total': 0, 'online': 0, 'presencial': 0}
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('dashboard.html',
+                           nome_user=session.get('user_name'),
+                           total_pacientes=total_p, total_pedidos=total_pendentes, consultas=consultas_hoje)
 
 if __name__ == '__main__':
     app.run(debug=True)
