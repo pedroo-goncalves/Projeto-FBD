@@ -6,51 +6,48 @@
     <title>Login - SGA Psicologia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="./static/style.css">
     <style>
-        body {
-            background: linear-gradient(135deg, #0d6efd 0%, #f8f9fa 50%);
-            height: 100vh;
-        }
+        body { background: linear-gradient(135deg, #0d6efd 0%, #f8f9fa 50%); height: 100vh; }
+        .card-login { max-width: 400px; width: 100%; border-radius: 15px; }
     </style>
 </head>
 <body class="d-flex align-items-center justify-content-center">
-
-    <div class="card shadow-lg border-0" style="max-width: 400px; width: 100%;">
+    <div class="card card-login shadow-lg border-0">
         <div class="card-body p-5">
             <div class="text-center mb-4">
                 <i class="fa-solid fa-brain fa-3x text-primary mb-3"></i>
                 <h4 class="fw-bold text-secondary">SGA Psicologia</h4>
-                <p class="text-muted small">Insira as credenciais de profissional</p>
+                <p class="text-muted small">Acesso Restrito a Profissionais</p>
             </div>
 
-            <form action="index.html"> <div class="mb-3">
-                    <label for="nif" class="form-label text-muted small fw-bold">NIF</label>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} py-2 text-center small">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form action="/login" method="POST">
+                <div class="mb-3">
+                    <label class="form-label text-muted small fw-bold">NIF</label>
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-id-card text-muted"></i></span>
-                        <input type="text" class="form-control border-start-0 ps-0" id="nif" placeholder="000000000" required>
+                        <input type="text" name="nif" class="form-control border-start-0 ps-0" placeholder="Insira o NIF" required>
                     </div>
                 </div>
-
                 <div class="mb-4">
-                    <label for="password" class="form-label text-muted small fw-bold">Palavra-passe</label>
+                    <label class="form-label text-muted small fw-bold">Palavra-passe</label>
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-lock text-muted"></i></span>
-                        <input type="password" class="form-control border-start-0 ps-0" id="password" placeholder="••••••••" required>
+                        <input type="password" name="senha" class="form-control border-start-0 ps-0" placeholder="••••••••" required>
                     </div>
                 </div>
-
                 <div class="d-grid">
-                    <button type="submit" class="btn btn-primary fw-bold shadow-sm">Entrar no Sistema</button>
+                    <button type="submit" class="btn btn-primary fw-bold shadow-sm">Entrar</button>
                 </div>
             </form>
-            
-            <div class="text-center mt-4">
-                <a href="#" class="small text-decoration-none text-muted">Esqueceu-se da palavra-passe?</a>
-            </div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
