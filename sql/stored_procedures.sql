@@ -190,3 +190,133 @@ BEGIN
     ORDER BY R.data_criacao DESC;
 END
 GO
+
+CREATE PROC sp_countPaciente
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 18/12/2025
+-- Descrição:   Conta os tuplos na tabela SGA_Paciente
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        SELECT COUNT(*) FROM SGA_PACIENTE;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+CREATE PROC sp_countPedidosPendentes
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 18/12/2025
+-- Descrição:   Conta pedidos no stado 'pendente'
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        SELECT COUNT(*) FROM SGA_PEDIDO as p WHERE p.estado = 'pendente';
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+CREATE OR ALTER PROC sp_countConsultasHoje
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 18/12/2025
+-- Descrição:   Conta consultas com data hoje
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        SELECT 
+            COUNT(*) AS total,
+            SUM(CASE WHEN sala = 'Online' THEN 1 ELSE 0 END) AS online
+        FROM SGA_ATENDIMENTO as a
+        WHERE CAST(GETDATE() AS DATE) = CAST(a.data_inicio AS DATE)
+            AND a.estado != 'cancelado';
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+CREATE PROCEDURE sp_ObterHorariosLivres
+    @id_medico INT,
+    @data_consulta DATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Configuração (Podes ajustar isto)
+    DECLARE @HoraInicio TIME = '09:00';
+    DECLARE @HoraFim TIME = '18:00';
+    DECLARE @DuracaoMinutos INT = 60; 
+
+    -- Tabela temporária para slots
+    CREATE TABLE #Slots (Hora TIME);
+
+    -- 1. Gerar todos os slots possíveis
+    DECLARE @HoraAtual TIME = @HoraInicio;
+    WHILE @HoraAtual < @HoraFim
+    BEGIN
+        -- Excluir hora de almoço (ex: 13:00) se quiseres
+        IF @HoraAtual != '13:00' 
+            INSERT INTO #Slots VALUES (@HoraAtual);
+            
+        SET @HoraAtual = DATEADD(MINUTE, @DuracaoMinutos, @HoraAtual);
+    END
+
+    -- 2. Devolver apenas os LIVRES
+    SELECT LEFT(CAST(s.Hora AS VARCHAR), 5) AS Hora -- Formata como "09:00"
+    FROM #Slots s
+    WHERE NOT EXISTS (
+        SELECT 1 
+        FROM SGA_ATENDIMENTO a
+        JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
+        WHERE ta.id_trabalhador = @id_medico
+          AND CAST(a.data_inicio AS DATE) = @data_consulta -- Mesmo dia
+          AND CAST(a.data_inicio AS TIME) = s.Hora       -- Mesma hora
+          AND a.estado != 'cancelado'
+    );
+
+    DROP TABLE #Slots;
+END
+GO
+
+CREATE OR ALTER PROC sp_listarMedicosAgenda
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 18/12/2025
+-- Descrição:   Busca a lista de medicos para o dropdown da agenda
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        SELECT t.id_trabalhador, p.nome
+        FROM SGA_TRABALHADOR as t JOIN SGA_PESSOA as p ON t.nif = p.nif
+        WHERE ativo = 1
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
