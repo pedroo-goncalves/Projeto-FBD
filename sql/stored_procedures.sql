@@ -328,6 +328,133 @@ BEGIN
 END
 GO
 
+CREATE OR ALTER PROCEDURE sp_AdmissaoComPedido
+    -- Dados Pessoa
+    @nif CHAR(9),
+    @nome VARCHAR(50),
+    @data_nascimento DATE,
+    @telefone CHAR(9),
+    @email VARCHAR(100),
+    -- Dados Paciente
+    @observacoes VARCHAR(250),
+    -- Dados Pedido
+    @id_solicitante INT, -- Quem está a registar (ex: rececionista ou admin)
+    @tipo_pedido VARCHAR(50) -- ex: 'Triagem Inicial'
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 18/12/2025
+-- Descrição:   Cria um paciente, se nao existir, e cria um pedido
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRAN
+            -- 1. Garantir que a Pessoa existe (Reutiliza a tua lógica)
+            EXEC sp_guardarPessoa @nif, @nome, @data_nascimento, @telefone, @email;
+
+            -- 2. Garantir que o Paciente existe
+            DECLARE @id_paciente INT;
+            SELECT @id_paciente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif;
+
+            IF @id_paciente IS NULL
+            BEGIN
+                INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
+                VALUES (@nif, GETDATE(), @observacoes, 1);
+                SET @id_paciente = SCOPE_IDENTITY();
+            END
+
+            -- 3. CRIAR O PEDIDO (O elo de ligação!)
+            -- Nota: id_aceitante fica NULL porque ainda ninguém aceitou
+            INSERT INTO SGA_PEDIDO (id_paciente, id_solicitante, id_aceitante, tipo_pedido, estado, data_criacao)
+            VALUES (@id_paciente, @id_solicitante, NULL, @tipo_pedido, 'pendente', GETDATE());
+
+        COMMIT TRAN
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+        THROW;
+    END CATCH
+END
+GO
+
+CREATE OR ALTER PROCEDURE sp_ListarPacientesParaAgenda
+    @id_trabalhador INT,
+    @perfil VARCHAR(20)
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 19/12/2025
+-- Descrição:   Busca a lista de pacientes com vinculo medico
+-- ==========================================================
+*/
+BEGIN
+    IF @perfil = 'admin'
+    BEGIN
+        -- Admin vê todos os pacientes ativos
+        SELECT id_paciente, nome FROM SGA_PESSOA P 
+        JOIN SGA_PACIENTE Pac ON P.NIF = Pac.NIF 
+        WHERE Pac.ativo = 1
+    END
+    ELSE
+    BEGIN
+        -- Médico só vê os seus (O Elo de Segurança)
+        SELECT Pac.id_paciente, P.nome 
+        FROM SGA_PACIENTE Pac
+        JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
+        JOIN SGA_VINCULO_CLINICO V ON Pac.id_paciente = V.id_paciente
+        WHERE V.id_trabalhador = @id_trabalhador 
+          AND Pac.ativo = 1
+    END
+END
+GO
+
+
+
+
+
+
+
+
+CREATE OR ALTER PROC sp_criarAgendamento
+(
+    @nif_paciente CHAR(9),
+    @id_medico INT,
+    @data_inicio DATETIME2
+)
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 19/12/2025
+-- Descrição:   Cria um agendamento
+-- ==========================================================
+*/
+BEGIN
+    -- validar paciente
+    DECLARE @id_paciente INT;
+    SELECT @id_paciente = @id_paciente FROM SGA_PACIENTE
+    WHERE NIF = @nif_paciente AND ativo = 1
+
+    IF @id_paciente IS NULL
+        THROW 50009, 'Paciente nao encontrado', 1;
+
+    -- validar medico
+    IF EXISTS (SELECT 1 FROM SGA_ATENDIMENTO)
+
+
+
+
+
+
+
+
+
+
+
 
 CREATE OR ALTER PROCEDURE sp_aceitarPedido
     @id_pedido INT,
