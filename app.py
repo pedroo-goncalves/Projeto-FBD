@@ -37,34 +37,33 @@ def login():
     if request.method == 'POST':
         nif = request.form.get('nif')
         senha = request.form.get('senha')
+
+        if not nif or not senha:
+            flash('Preencha todos os campos.', 'warning')
+            return render_template('login.html')
         
-        hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
+
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            
-            # Chama a Stored Procedure para obter os dados do trabalhador
+
             cursor.execute("EXEC sp_obterLogin ?", (nif,))
             user = cursor.fetchone()
             conn.close()
 
-            if user and hash_introduzido == user[1]:
-                # 1. Transforma a senha digitada em Hash SHA256 (igual ao SQL)
+            if user:
                 hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
-                
-                # 2. Compara o hash gerado com o hash que está na BD
+
                 if hash_introduzido == user[1]:
                     session['user_id'] = user[0]
-                    session['user_name'] = user[3]
                     session['perfil'] = user[2]
+                    session['user_name'] = user[3]
                     return redirect(url_for('dashboard'))
-                else:
-                    flash('Credenciais inválidas.', 'danger')
-            else:
-                flash('Credenciais inválidas.', 'danger')
 
-        except Exception as e:
-            flash(f'Erro de sistema: {e}', 'danger')
+            flash('NIF ou palavra-passe incorretos.', 'danger')
+
+        except Exception:
+            flash('Ocorreu um erro interno. Tente novamente mais tarde.', 'danger')
 
     return render_template('login.html')
 
@@ -218,19 +217,34 @@ def criar_paciente():
     telefone = request.form.get('telefone')
     observacoes = request.form.get('observacoes')
     
-    id_medico = session['user_id']
+    user_id = session['user_id']
+    user_perfil = session['perfil']
     data_hoje = datetime.now().strftime('%Y-%m-%d')
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Executa as SPs de escrita definidas no SQL
-        cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", (nif, nome, data_nasc, telefone, email))
-        cursor.execute("EXEC sp_inserirPaciente ?, ?, ?, ?", (nif, data_hoje, observacoes, id_medico))
+
+        # LÓGICA DE NEGÓCIO:
+        # Se for um médico a registar, ele quer ficar já com o paciente (Vínculo Imediato).
+        # Se for Admin a fazer admissão geral, cria um Pedido para triagem.
+        
+        if user_perfil == 'colaborador': 
+            # O médico regista e fica logo responsável (Cenário A)
+            cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", (nif, nome, data_nasc, telefone, email))
+            # Passamos user_id como médico responsável para criar o vínculo logo
+            cursor.execute("EXEC sp_inserirPaciente @NIF=?, @data_inscricao=?, @observacoes=?, @id_medico_responsavel=?", 
+                           (nif, data_hoje, observacoes, user_id))
+            flash('Paciente registado e vinculado a si com sucesso!', 'success')
+
+        else:
+            # É uma admissão administrativa (Cenário B) -> Gera PEDIDO
+            cursor.execute("EXEC sp_AdmissaoComPedido ?, ?, ?, ?, ?, ?, ?, ?", 
+                           (nif, nome, data_nasc, telefone, email, observacoes, user_id, 'Triagem Inicial'))
+            flash('Paciente registado. Pedido de triagem criado!', 'warning')
         
         conn.commit()
         conn.close()
-        flash('Paciente registado com sucesso!', 'success')
     except Exception as e:
         flash(f'Erro ao gravar: {e}', 'danger')
     
