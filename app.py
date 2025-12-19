@@ -23,7 +23,7 @@ load_dotenv()
 
 app = Flask(__name__)
 # A secret_key permite o funcionamento das mensagens flash e sessões
-app.secret_key = os.getenv('SECRET_KEY', 'chave-de-seguranca-padrao-123')
+app.secret_key = os.getenv('SECRET_KEY')
 
 
 def is_logged_in():
@@ -32,36 +32,40 @@ def is_logged_in():
 # ------------------------------------------------------------------
 # ROTA 1: LOGIN (Validação SHA256 Pura)
 # ------------------------------------------------------------------
-@app.route('/login', methods=['GET', 'POST']) # <--- Adicionado 'GET'
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    # Se o utilizador já estiver logado, manda-o para o dashboard
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-
     if request.method == 'POST':
         nif = request.form.get('nif')
-        senha_introduzida = request.form.get('senha')
+        senha = request.form.get('senha')
         
-        hash_introduzido = hashlib.sha256(senha_introduzida.encode()).hexdigest()
-
+        hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
+            
+            # Chama a Stored Procedure para obter os dados do trabalhador
             cursor.execute("EXEC sp_obterLogin ?", (nif,))
             user = cursor.fetchone()
             conn.close()
 
             if user and hash_introduzido == user[1]:
-                session['user_id'] = user[0]
-                session['user_name'] = user[3]
-                session['perfil'] = user[2]
-                return redirect(url_for('dashboard'))
+                # 1. Transforma a senha digitada em Hash SHA256 (igual ao SQL)
+                hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
+                
+                # 2. Compara o hash gerado com o hash que está na BD
+                if hash_introduzido == user[1]:
+                    session['user_id'] = user[0]
+                    session['user_name'] = user[3]
+                    session['perfil'] = user[2]
+                    return redirect(url_for('dashboard'))
+                else:
+                    flash('Credenciais inválidas.', 'danger')
             else:
-                flash('NIF ou Palavra-passe incorretos.', 'danger')
-        except Exception as e:
-            flash(f"Erro técnico no login: {e}", "danger")
+                flash('Credenciais inválidas.', 'danger')
 
-    # Se for GET (ou falha no login), mostra a página de login
+        except Exception as e:
+            flash(f'Erro de sistema: {e}', 'danger')
+
     return render_template('login.html')
 
 # ------------------------------------------------------------------
@@ -478,7 +482,7 @@ def api_horarios():
 
     return jsonify(slots) # O Python transforma a lista em JSON para o JS ler
 
-
+@app.route('/')
 @app.route('/dashboard')
 def dashboard():
     if not is_logged_in(): return redirect(url_for('login'))
