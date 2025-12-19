@@ -629,29 +629,18 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-
-    -- 1. VALIDAÇÃO DE SEGURANÇA
-    -- Só entra se for ADMIN OU se houver um vínculo na tabela do Vinculo
+    -- Validação: Admin vê tudo, o Colaborador vê apenas quem está a seu cargo
     IF @perfil <> 'admin' AND NOT EXISTS (
         SELECT 1 FROM SGA_VINCULO_CLINICO 
         WHERE id_paciente = @id_paciente AND id_trabalhador = @id_trabalhador
     )
     BEGIN
-        -- Bloqueio para quem não é responsável pelo paciente
-        THROW 50005, 'Acesso Negado: Não tem este paciente a seu cargo.', 1;
+        THROW 50005, 'Acesso Negado: Não tem permissão clínica para este paciente.', 1;
     END
 
-    -- 2. ACESSO TOTAL AOS DADOS
     SELECT 
-        Pac.id_paciente,        -- [0]
-        Pess.nome,              -- [1]
-        Pess.NIF,               -- [2]
-        Pess.data_nascimento,   -- [3]
-        Pess.telefone,          -- [4]
-        Pess.email,             -- [5]
-        Pac.data_inscricao,     -- [6]
-        Pac.observacoes,        -- [7]
-        Pac.ativo               -- [8]
+        Pac.id_paciente, Pess.nome, Pess.NIF, Pess.data_nascimento, 
+        Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes, Pac.ativo
     FROM SGA_PACIENTE Pac
     JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
     WHERE Pac.id_paciente = @id_paciente;
@@ -660,7 +649,8 @@ GO
 
 
 CREATE OR ALTER PROCEDURE sp_obterDetalhesTrabalhador
-    @id_trabalhador INT
+    @id_trabalhador_alvo INT,
+    @perfil_quem_pede VARCHAR(20)
 AS
 /*
 -- ==========================================================
@@ -672,6 +662,12 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
+
+    IF @perfil_quem_pede <> 'admin'
+    BEGIN
+        THROW 50006, 'Acesso Negado: Apenas administradores podem consultar detalhes da equipa.', 1;
+    END
+
     SELECT 
         P.nome,                  -- [0]
         P.email,                 -- [1]
@@ -679,17 +675,19 @@ BEGIN
         T.tipo_perfil,           -- [3]
         T.cedula_profissional,   -- [4]
         P.NIF,                   -- [5]
-        P.data_nascimento,       -- [6]
+        -- FORMATAMOS AQUI PARA TEXTO:
+        ISNULL(FORMAT(P.data_nascimento, 'dd/MM/yyyy'), '---') AS data_nascimento, -- [6]
         T.id_trabalhador,        -- [7]
         T.ativo,                 -- [8]
-        T.data_inicio,           -- [9]
-        C.contrato_trabalho,     -- [10] (Da tabela SGA_CONTRATADO)
-        S.ordem,                 -- [11] (Da tabela SGA_PRESTADOR_SERVICO)
-        S.remuneracao            -- [12] (Da tabela SGA_PRESTADOR_SERVICO)
+        -- FORMATAMOS AQUI TAMBÉM:
+        ISNULL(FORMAT(T.data_inicio, 'dd/MM/yyyy'), '---') AS data_inicio,         -- [9]
+        C.contrato_trabalho,     -- [10]
+        S.ordem,                 -- [11]
+        S.remuneracao            -- [12]
     FROM SGA_TRABALHADOR T
     JOIN SGA_PESSOA P ON T.NIF = P.NIF
     LEFT JOIN SGA_CONTRATADO C ON T.id_trabalhador = C.id_trabalhador
     LEFT JOIN SGA_PRESTADOR_SERVICO S ON T.id_trabalhador = S.id_trabalhador
-    WHERE T.id_trabalhador = @id_trabalhador;
+    WHERE T.id_trabalhador = @id_trabalhador_alvo;
 END;
 GO

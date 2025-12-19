@@ -235,32 +235,20 @@ def criar_paciente():
 @app.route('/pacientes/detalhes/<int:id_paciente>')
 def pacientes_detalhes(id_paciente):
     if 'user_id' not in session: return redirect(url_for('login'))
-
-    detalhes = None
+    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # Chamada da SP que valida o acesso (Admin ou Vinculado)
-        # Os parâmetros são: ID do Paciente, ID do utilizador logado e o seu Perfil
+        # Validação dupla: quem pede e que perfil tem
         cursor.execute("EXEC sp_obterFichaCompletaPaciente ?, ?, ?", 
                        (id_paciente, session['user_id'], session['perfil']))
-        
         detalhes = cursor.fetchone()
         conn.close()
-
-        if not detalhes:
-            flash("Paciente não encontrado.", "warning")
-            return redirect(url_for('pacientes'))
-
+        
+        return render_template('pacientes_detalhes.html', p=detalhes, nome_user=session['user_name'])
     except Exception as e:
-        # Se a SP lançar o erro de "Acesso Negado", ele será capturado aqui
-        flash(f"{e}", "danger")
+        flash(f"Erro de Acesso: {e}", "danger")
         return redirect(url_for('pacientes'))
-
-    return render_template('pacientes_detalhes.html', 
-                           p=detalhes, 
-                           nome_user=session.get('user_name'))
 
 # --- ROTA PARA ATUALIZAR OBSERVAÇÕES (POST DO MODAL) ---
 @app.route('/pacientes/atualizar_obs', methods=['POST'])
@@ -430,21 +418,18 @@ def ativar_funcionario(id_trabalhador):
 @app.route('/equipa/detalhes/<int:id_trabalhador>')
 def equipa_detalhes(id_trabalhador):
     if 'user_id' not in session: return redirect(url_for('login'))
-
-    trabalhador = None
+    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_obterDetalhesTrabalhador ?", (id_trabalhador,))
+        # O SQL decide se entrega os dados com base no perfil
+        cursor.execute("EXEC sp_obterDetalhesTrabalhador ?, ?", (id_trabalhador, session['perfil']))
         trabalhador = cursor.fetchone()
         conn.close()
         
-        if not trabalhador:
-            flash("Colaborador não encontrado.", "warning")
-            return redirect(url_for('equipa'))
-            
+        return render_template('equipa_detalhes.html', t=trabalhador, nome_user=session['user_name'])
     except Exception as e:
-        flash(f"Erro ao carregar detalhes: {e}", "danger")
+        flash(f"Acesso Negado: {e}", "danger")
         return redirect(url_for('equipa'))
 
     return render_template('equipa_detalhes.html', 
