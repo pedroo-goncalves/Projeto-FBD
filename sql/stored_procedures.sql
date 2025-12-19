@@ -191,7 +191,7 @@ BEGIN
 END
 GO
 
-CREATE PROC sp_countPaciente
+CREATE OR ALTER PROC  sp_countPaciente
 AS
 /*
 -- ==========================================================
@@ -211,7 +211,7 @@ BEGIN
 END
 GO
 
-CREATE PROC sp_countPedidosPendentes
+CREATE OR ALTER PROC sp_countPedidosPendentes
 AS
 /*
 -- ==========================================================
@@ -242,21 +242,54 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    BEGIN TRY
-        SELECT 
-            COUNT(*) AS total,
-            SUM(CASE WHEN sala = 'Online' THEN 1 ELSE 0 END) AS online
-        FROM SGA_ATENDIMENTO as a
-        WHERE CAST(GETDATE() AS DATE) = CAST(a.data_inicio AS DATE)
-            AND a.estado != 'cancelado';
-    END TRY
-    BEGIN CATCH
-        THROW;
-    END CATCH
+    SELECT 
+        COUNT(*) AS total,
+        -- Conta usando a propriedade da sala, não o nome
+        SUM(CASE WHEN s.is_online = 1 THEN 1 ELSE 0 END) AS online,
+        SUM(CASE WHEN s.is_online = 0 THEN 1 ELSE 0 END) AS presencial
+    FROM SGA_ATENDIMENTO a
+    JOIN SGA_SALA s ON a.id_sala = s.id_sala
+    WHERE CAST(a.data_inicio AS DATE) = CAST(GETDATE() AS DATE)
+      AND a.estado != 'cancelado';
 END
 GO
 
-CREATE PROCEDURE sp_ObterHorariosLivres
+CREATE OR ALTER PROCEDURE sp_contarSalasLivresAgora
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 19/12/2025
+-- Descrição:   Conta salas livres, no momento
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @TotalSalasFisicas INT;
+    DECLARE @SalasOcupadasAgora INT;
+
+    -- excluir salas online
+    SELECT @TotalSalasFisicas = COUNT(*) FROM SGA_SALA WHERE is_online = 0 AND ativa = 1;
+
+    -- 2. Quantos estão ocupados neste momento?
+    SELECT @SalasOcupadasAgora = COUNT(DISTINCT a.id_sala)
+    FROM SGA_ATENDIMENTO a
+    JOIN SGA_SALA s ON a.id_sala = s.id_sala
+    WHERE s.is_online = 0 -- Só nos interessa ocupação física
+      AND a.estado = 'a decorrer' -- Ou validação por hora:
+      -- AND GETDATE() BETWEEN a.data_inicio AND a.data_fim
+      AND a.estado != 'cancelado';
+
+    -- Retorna as livres (protegendo contra negativos)
+    SELECT CASE 
+        WHEN (@TotalSalasFisicas - @SalasOcupadasAgora) < 0 THEN 0 
+        ELSE (@TotalSalasFisicas - @SalasOcupadasAgora) 
+    END AS salas_livres;
+END
+GO
+
+CREATE OR ALTER PROCEDURE sp_ObterHorariosLivres
     @id_medico INT,
     @data_consulta DATE
 AS
@@ -392,22 +425,26 @@ AS
 -- ==========================================================
 */
 BEGIN
+    SET NOCOUNT ON;
+
     IF @perfil = 'admin'
     BEGIN
-        -- Admin vê todos os pacientes ativos
-        SELECT id_paciente, nome FROM SGA_PESSOA P 
-        JOIN SGA_PACIENTE Pac ON P.NIF = Pac.NIF 
+        -- Admin vê todos
+        SELECT Pac.id_paciente, P.nome, P.NIF 
+        FROM SGA_PACIENTE Pac
+        JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
         WHERE Pac.ativo = 1
+        ORDER BY P.nome
     END
     ELSE
     BEGIN
-        -- Médico só vê os seus (O Elo de Segurança)
-        SELECT Pac.id_paciente, P.nome 
+        -- Médico vê só os seus
+        SELECT Pac.id_paciente, P.nome, P.NIF
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
         JOIN SGA_VINCULO_CLINICO V ON Pac.id_paciente = V.id_paciente
-        WHERE V.id_trabalhador = @id_trabalhador 
-          AND Pac.ativo = 1
+        WHERE V.id_trabalhador = @id_trabalhador AND Pac.ativo = 1
+        ORDER BY P.nome
     END
 END
 GO
@@ -419,38 +456,67 @@ GO
 
 
 
-CREATE OR ALTER PROC sp_criarAgendamento
-(
+CREATE OR ALTER PROCEDURE sp_criarAgendamento
     @nif_paciente CHAR(9),
     @id_medico INT,
-    @data_inicio DATETIME2
-)
+    @data_inicio DATETIME2,
+    @preferencia_online BIT -- 1=Online, 0=Presencial
 AS
-/*
--- ==========================================================
--- Autor:       Bernardo Santos
--- Create Date: 19/12/2025
--- Descrição:   Cria um agendamento
--- ==========================================================
-*/
 BEGIN
-    -- validar paciente
+    SET NOCOUNT ON;
+    
+    -- 1. Validar Paciente
     DECLARE @id_paciente INT;
-    SELECT @id_paciente = @id_paciente FROM SGA_PACIENTE
-    WHERE NIF = @nif_paciente AND ativo = 1
+    SELECT @id_paciente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif_paciente AND ativo = 1;
+    IF @id_paciente IS NULL THROW 50009, 'Paciente não encontrado.', 1;
 
-    IF @id_paciente IS NULL
-        THROW 50009, 'Paciente nao encontrado', 1;
+    -- 2. Validar Disponibilidade do Médico
+    IF EXISTS (
+        SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
+        JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
+        WHERE ta.id_trabalhador = @id_medico 
+          AND a.estado != 'cancelado'
+          AND (@data_inicio >= a.data_inicio AND @data_inicio < a.data_fim)
+    )
+    THROW 50010, 'O médico já tem consulta marcada a essa hora.', 1;
 
-    -- validar medico
-    IF EXISTS (SELECT 1 FROM SGA_ATENDIMENTO)
+    -- 3. ALOCAR SALA
+    DECLARE @id_sala_final INT;
 
+    IF @preferencia_online = 1
+    BEGIN
+        -- Busca a sala Online
+        SELECT TOP 1 @id_sala_final = id_sala FROM SGA_SALA WHERE is_online = 1;
+    END
+    ELSE
+    BEGIN
+        -- Busca uma sala FÍSICA que esteja livre nessa hora
+        SELECT TOP 1 @id_sala_final = s.id_sala
+        FROM SGA_SALA s
+        WHERE s.is_online = 0 AND s.ativa = 1
+        AND s.id_sala NOT IN (
+            SELECT a.id_sala 
+            FROM SGA_ATENDIMENTO a
+            WHERE a.estado != 'cancelado'
+              AND (@data_inicio >= a.data_inicio AND @data_inicio < a.data_fim)
+        );
+    END
 
+    IF @id_sala_final IS NULL
+        THROW 50011, 'Não há salas disponíveis (ou sala Online não configurada).', 1;
 
+    -- 4. Inserir
+    BEGIN TRAN
+        INSERT INTO SGA_ATENDIMENTO (id_sala, data_inicio, data_fim, estado)
+        VALUES (@id_sala_final, @data_inicio, DATEADD(MINUTE, 60, @data_inicio), 'agendado');
+        
+        DECLARE @new_id INT = SCOPE_IDENTITY();
 
-
-
-
+        INSERT INTO SGA_TRABALHADOR_ATENDIMENTO (id_trabalhador, num_atendimento) VALUES (@id_medico, @new_id);
+        INSERT INTO SGA_PACIENTE_ATENDIMENTO (id_paciente, num_atendimento, presenca) VALUES (@id_paciente, @new_id, 0);
+    COMMIT TRAN
+END
+GO
 
 
 

@@ -1,7 +1,7 @@
 import os
 import hashlib
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from dotenv import load_dotenv
 
 # Importação da conexão confisgurada no teu projeto
@@ -15,6 +15,9 @@ from persistence.pedidos import contar_pedidos_pendentes
 
 # Imports dos atendimentos
 from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres
+
+# Imports das salas
+from persistence.salas import contar_salas_livres
 
 # Imports dos trabalhadores
 from persistence.trabalhadores import medicos_agenda_dropdown
@@ -460,7 +463,6 @@ def equipa_detalhes(id_trabalhador):
 
 
 
-
 @app.route('/agenda')
 def agenda():
     if not is_logged_in(): return redirect(url_for('login'))
@@ -468,17 +470,128 @@ def agenda():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    lista_medicos = []
+    lista_pacientes = []
+
     try:
+        # 1. Carregar Médicos (Para o Admin escolher)
+        # Se for Colaborador, nem precisava da lista toda, mas o HTML trata disso
         lista_medicos = medicos_agenda_dropdown(cursor)
+        
+        # 2. Carregar Pacientes (SEGURANÇA: Vê só os seus se for colaborador)
+        # Certifica-te que tens a sp_ListarPacientesParaAgenda criada no SQL!
+        cursor.execute("EXEC sp_ListarPacientesParaAgenda ?, ?", (session['user_id'], session['perfil']))
+        rows = cursor.fetchall()
+        
+        # Formata para usar no Datalist (NIF como valor, Nome como texto)
+        lista_pacientes = [{'nif': r[2], 'nome': r[1]} for r in rows]
+
     except Exception as e:
-        print(f"erro: {e}")
-        lista_medicos = []
+        print(f"Erro agenda: {e}")
+    finally:
+        conn.close()
 
+    return render_template('agenda.html', 
+                           nome_user=session.get('user_name'),
+                           medicos=lista_medicos,
+                           pacientes=lista_pacientes) # Importante enviar isto
 
-    return render_template('agenda.html', nome_user=session.get('user_name'),
-                           medicos=lista_medicos)
+# ROTA DE GRAVAR AGENDAMENTO
+@app.route('/criar_agendamento', methods=['POST'])
+def criar_agendamento():
+    if not is_logged_in(): return redirect(url_for('login'))
+
+    nif_paciente = request.form.get('nif_paciente')
+    
+    # Se for Colaborador, forçamos o ID dele (segurança backend)
+    if session['perfil'] == 'colaborador':
+        id_medico = session['user_id']
+    else:
+        id_medico = request.form.get('id_medico')
+
+    data_str = request.form.get('data')
+    hora_str = request.form.get('hora')
+    
+    # CHECKBOX: Se estiver marcado vem '1', senão vem None.
+    # Convertemos para 1 ou 0 para o SQL
+    is_online_raw = request.form.get('is_online')
+    preferencia_online = 1 if is_online_raw else 0
+
+    if not all([nif_paciente, id_medico, data_str, hora_str]):
+        flash('Preencha todos os campos obrigatórios.', 'warning')
+        return redirect(url_for('agenda'))
+
+    try:
+        data_completa = f"{data_str} {hora_str}:00"
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Chama a SP atualizada com o parâmetro extra de Online
+        cursor.execute("EXEC sp_criarAgendamento ?, ?, ?, ?", 
+                       (nif_paciente, id_medico, data_completa, preferencia_online))
+        
+        conn.commit()
+        conn.close()
+        flash('Consulta agendada com sucesso!', 'success')
+        
+    except Exception as e:
+        msg = str(e)
+        if "50009" in msg: msg = "Paciente não encontrado (verifique o NIF)."
+        elif "50010" in msg: msg = "Médico ocupado nessa hora."
+        elif "50011" in msg: msg = "Não há salas disponíveis."
+        
+        print(f"Erro Agendamento: {e}")
+        flash(f'Erro: {msg}', 'danger')
+
+    return redirect(url_for('agenda'))
 
 from flask import jsonify, request # Importante adicionar jsonify e request
+
+@app.route('/api/eventos')
+def api_eventos():
+    if not is_logged_in(): return jsonify([])
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Query que junta Atendimento -> Paciente -> Pessoa para obter nomes e datas
+    # Filtra para não mostrar cancelados
+    query = """
+    SELECT 
+        A.num_atendimento,
+        Pess.nome,
+        A.data_inicio,
+        A.data_fim,
+        A.estado
+    FROM SGA_ATENDIMENTO A
+    JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
+    JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
+    JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
+    WHERE A.estado != 'cancelado'
+    """
+    
+    #TODO: nao esquecer de experimentar descomentar isto
+    # Se quiseres que o médico só veja as suas, podes descomentar e adaptar:
+    # query += " AND EXISTS (SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO TA WHERE TA.num_atendimento = A.num_atendimento AND TA.id_trabalhador = ?)"
+    # cursor.execute(query, (session['user_id'],))
+    
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    eventos = []
+    for row in rows:
+        # Formata para o padrão do FullCalendar
+        eventos.append({
+            'title': row[1],             # Nome do Paciente (ex: "Ana Silva")
+            'start': row[2].isoformat(), # Data Inicio (ISO 8601)
+            'end': row[3].isoformat(),   # Data Fim
+            # Cor: Verde se finalizado, Azul se agendado, Vermelho se falta
+            'color': '#198754' if row[4] == 'finalizado' else ('#dc3545' if row[4] == 'falta' else '#0d6efd')
+        })
+        
+    return jsonify(eventos)
 
 @app.route('/api/horarios-disponiveis')
 def api_horarios():
@@ -508,19 +621,23 @@ def dashboard():
         total_p = contar_pacientes(cursor)
         total_pendentes = contar_pedidos_pendentes(cursor)
         consultas_hoje = contar_atendimentos_hoje(cursor)
+        salas_livres = contar_salas_livres(cursor)
 
     except Exception as e:
         print(f"Erro: {e}")
         total_p = 0
         total_pendentes = 0
         consultas_hoje = {'total': 0, 'online': 0, 'presencial': 0}
+        salas_livres = 0
     finally:
         cursor.close()
         conn.close()
 
     return render_template('dashboard.html',
                            nome_user=session.get('user_name'),
-                           total_pacientes=total_p, total_pedidos=total_pendentes, consultas=consultas_hoje)
+                           total_pacientes=total_p, total_pedidos=total_pendentes, consultas=consultas_hoje,
+                           salas_livres=salas_livres)
+
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -3,146 +3,184 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agenda - SGA Psicologia</title>
+    <title>Agenda Clínica - SGA</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+
+    <style>
+        #calendar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            min-height: 700px;
+        }
+
+        .fc-toolbar-title {
+            font-size: 1.5rem !important;
+            color: #495057;
+        }
+
+        .fc-button-primary {
+            background-color: #0d6efd !important;
+            border: none;
+        }
+
+        .fc-event {
+            cursor: pointer;
+        }
+    </style>
 </head>
 
 <body class="bg-light">
+
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <a class="navbar-brand fw-bold" href="/dashboard"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/pacientes">Pacientes</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/equipa">Equipa</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/relatorios">Relatórios</a></li>
-                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3"
-                            href="/logout">Sair ({{ nome_user }})</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="/agenda">Agenda</a></li>
+                    <li class="nav-item ms-3"><a class="nav-link btn btn-sm btn-outline-light" href="/logout">Sair</a>
+                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="text-secondary fw-light"><i class="fa-regular fa-calendar-days me-2"></i>Agenda Semanal</h3>
+            <h3 class="text-secondary fw-light"><i class="fa-regular fa-calendar-days me-2"></i>Agenda Global</h3>
             <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalAgendamento">
                 <i class="fa-solid fa-plus me-2"></i>Novo Agendamento
             </button>
         </div>
 
-        <div class="card shadow-sm">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                <button class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-chevron-left"></i></button>
-                <h5 class="mb-0 fw-bold text-dark">Dezembro 2025</h5>
-                <button class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-chevron-right"></i></button>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-bordered text-center mb-0 align-middle" style="table-layout: fixed;">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 80px;">Hora</th>
-                                <th>Segunda <br><small class="text-muted fw-normal">15</small></th>
-                                <th>Terça <br><small class="text-muted fw-normal">16</small></th>
-                                <th>Quarta <br><small class="text-muted fw-normal">17</small></th>
-                                <th>Quinta <br><small class="text-muted fw-normal">18</small></th>
-                                <th>Sexta <br><small class="text-muted fw-normal">19</small></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="fw-bold text-muted small">09:00</td>
-                                <td></td>
-                                <td class="bg-primary bg-opacity-10 border-primary border-start border-3 p-2">
-                                    <small class="d-block fw-bold text-primary">Ana Silva</small>
-                                    <small class="text-muted" style="font-size: 0.7rem;">Primeira Consulta</small>
-                                </td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold text-muted small">10:00</td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                                <td class="bg-warning bg-opacity-10 border-warning border-start border-3 p-2">
-                                    <small class="d-block fw-bold text-dark">Reunião Equipa</small>
-                                </td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold text-muted small">11:00</td>
-                                <td class="bg-success bg-opacity-10 border-success border-start border-3 p-2">
-                                    <small class="d-block fw-bold text-success">Rui Pedro</small>
-                                    <small class="text-muted" style="font-size: 0.7rem;">Acompanhamento</small>
-                                </td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+        <div id='calendar'></div>
     </div>
 
     <div class="modal fade" id="modalAgendamento" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header">
+                <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title">Agendar Consulta</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <form action="/criar_agendamento" method="POST">
-                        <div class="mb-3">
-                            <label class="form-label">Paciente</label>
-                            <input type="text" name="nif_paciente" class="form-control" placeholder="NIF" required
-                                maxlength="9" pattern="[0-9]{9}">
+
+                        <div class="form-check form-switch mb-3 bg-light p-3 rounded">
+                            <input class="form-check-input ms-0 me-2" type="checkbox" id="checkOnline" name="is_online"
+                                value="1">
+                            <label class="form-check-label fw-bold" for="checkOnline">Consulta Online
+                                (Videochamada)</label>
                         </div>
+
                         <div class="mb-3">
-                            <label>Profissional</label>
+                            <label class="form-label fw-bold small">Profissional</label>
+
+                            {% if session['perfil'] == 'colaborador' %}
+                            <input type="text" class="form-control bg-light" value="{{ nome_user }}" readonly>
+                            <input type="hidden" name="id_medico" id="selectMedico" value="{{ session['user_id'] }}">
+
+                            {% else %}
                             <select name="id_medico" id="selectMedico" class="form-select" required>
                                 <option value="" selected disabled>Escolha um médico...</option>
                                 {% for medico in medicos %}
                                 <option value="{{ medico.id }}">{{ medico.nome }}</option>
                                 {% endfor %}
                             </select>
+                            {% endif %}
                         </div>
 
                         <div class="mb-3">
-                            <label>Data</label>
+                            <label class="form-label fw-bold small">Paciente</label>
+                            <input class="form-control" list="datalistPacientes" name="nif_paciente" id="inputPaciente"
+                                placeholder="Escreva NIF ou Nome..." required autocomplete="off">
+
+                            <datalist id="datalistPacientes">
+                                {% for p in pacientes %}
+                                <option value="{{ p.nif }}">{{ p.nome }}</option>
+                                {% endfor %}
+                            </datalist>
+                            <div class="form-text small">Digite o NIF ou selecione da lista.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Data</label>
                             <input type="date" name="data" id="inputData" class="form-control" required>
                         </div>
 
                         <div class="mb-3">
-                            <label>Horário Disponível</label>
+                            <label class="form-label fw-bold small text-primary">Horário Disponível</label>
                             <select name="hora" id="selectHora" class="form-select" disabled required>
                                 <option value="">Selecione primeiro médico e data</option>
                             </select>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Agendar</button>
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-primary shadow-sm">Confirmar Agendamento</button>
+                        </div>
                     </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
     <script src="{{ url_for('static', filename='js/agenda.js') }}"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var calendarEl = document.getElementById('calendar');
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'timeGridWeek', // Vista Semanal
+                locale: 'pt',                // Português
+                firstDay: 1,                 // Começa à Segunda-feira
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                buttonText: {
+                    today: 'Hoje',
+                    month: 'Mês',
+                    week: 'Semana',
+                    day: 'Dia',
+                    list: 'Lista'
+                },
+                slotMinTime: "08:00:00", // Agenda começa às 8h
+                slotMaxTime: "20:00:00", // Agenda acaba às 20h
+                allDaySlot: false,       // Remove linha de "dia todo"
+                height: 'auto',
+
+                // AQUI CHAMA A TUA ROTA PYTHON:
+                events: '/api/eventos',
+
+                eventClick: function (info) {
+                    alert('Consulta: ' + info.event.title);
+                    // Podes mudar isto para abrir uma página de detalhes depois
+                }
+            });
+            calendar.render();
+        });
+    </script>
 </body>
 
 </html>
