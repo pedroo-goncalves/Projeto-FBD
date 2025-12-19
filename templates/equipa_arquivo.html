@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquivo da Equipa - SGA Psicologia</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="{{ url_for('equipa') }}">
+                <i class="fa-solid fa-user-gear me-2"></i>Gestão de Arquivo (Staff)
+            </a>
+            <div class="ms-auto">
+                <a href="{{ url_for('equipa') }}" class="btn btn-sm btn-outline-light px-3">
+                    <i class="fa-solid fa-arrow-left me-2"></i>Voltar à Equipa
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="mb-4">
+            <h3 class="text-secondary fw-light">Funcionários Inativos</h3>
+            <p class="text-muted small">Estes utilizadores não têm permissão para entrar no sistema.</p>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="ps-4">Nome / Perfil</th>
+                                <th>Contacto</th>
+                                <th>Data de Saída</th>
+                                <th class="text-end pe-4">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for membro in equipa %}
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="fw-bold">{{ membro[0] }}</div>
+                                    <small class="badge bg-secondary text-uppercase" style="font-size: 0.7rem;">{{ membro[3] }}</small>
+                                </td>
+                                <td>
+                                    <div class="small">{{ membro[1] }}</div>
+                                    <div class="small text-muted">{{ membro[2] }}</div>
+                                </td>
+                                <td>{{ membro[4] }}</td>
+                                <td class="text-end pe-4">
+                                    <a href="{{ url_for('ativar_funcionario', id_trabalhador=membro[5]) }}" 
+                                       class="btn btn-sm btn-success shadow-sm"
+                                       onclick="return confirm('Deseja restaurar o acesso de {{ membro[0] }}?')">
+                                        <i class="fa-solid fa-user-check me-2"></i>Reativar
+                                    </a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-5 text-muted">
+                                    <i class="fa-solid fa-users-slash d-block fa-3x mb-3 text-secondary-emphasis"></i>
+                                    O arquivo da equipa está vazio.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

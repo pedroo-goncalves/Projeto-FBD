@@ -9,15 +9,15 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="/"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/pacientes">Pacientes</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/equipa">Equipa</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/relatorios">Relatórios</a></li>
-                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3" href="/logout">Sair ({{ nome_user }})</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('pacientes') }}">Pacientes</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('equipa') }}">Equipa</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('agenda') }}">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('relatorios') }}">Relatórios</a></li>
+                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3" href="{{ url_for('logout') }}">Sair ({{ nome_user }})</a></li>
                 </ul>
             </div>
         </div>

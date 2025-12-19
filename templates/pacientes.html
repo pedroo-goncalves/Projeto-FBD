@@ -10,9 +10,10 @@
 </head>
 
 <body class="bg-light">
+
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="/"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
@@ -28,35 +29,105 @@
     </nav>
 
     <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h3 class="text-secondary fw-light"><i class="fa-solid fa-users me-2"></i>Meus Pacientes</h3>
             <button class="btn btn-success shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoPaciente"><i
                     class="fa-solid fa-user-plus me-2"></i>Novo Paciente</button>
         </div>
 
-        <div class="row g-4">
-            {% for p in pacientes %}
-            <div class="col-md-6 col-lg-4">
-                <div class="card h-100 shadow-sm border-0">
-                    <div class="card-body text-center p-4">
-                        <h5 class="fw-bold mb-1">{{ p[0] }}</h5>
-                        <p class="text-muted small mb-2">NIF: {{ p[1] }}</p>
-                        <div class="card bg-light border-0 mb-3 text-start p-2 small">
-                            <div><i class="fa-solid fa-notes-medical me-2 text-primary"></i>Obs: {{ p[2] }}</div>
-                            <div><i class="fa-solid fa-calendar-day me-2 text-primary"></i>Inscrito: {{ p[3] }}</div>
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-4">
+                
+                <div class="row mb-4">
+                    <div class="col-md-6 col-lg-4">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0 text-muted">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </span>
+                            <input type="text" id="searchInput" class="form-control border-start-0 ps-0" 
+                                   placeholder="Pesquisar por nome ou NIF..." onkeyup="filtrarPacientes()">
                         </div>
                     </div>
                 </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="pacientesTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">Nome / Observações</th>
+                                <th>NIF</th>
+                                <th>Contactos</th>
+                                <th>Data Inscrição</th>
+                                <th class="text-end pe-3">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in pacientes %}
+                            <tr>
+                                <td class="ps-3">
+                                    <div class="fw-bold text-dark">{{ p[1] }}</div>
+                                    <small class="text-muted text-truncate d-inline-block" style="max-width: 200px;">
+                                        {{ p[6] or 'Sem observações iniciais.' }}
+                                    </small>
+                                </td>
+                                <td><span class="badge bg-light text-dark border">{{ p[2] }}</span></td>
+                                <td>
+                                    <div class="small"><i class="fa-solid fa-phone me-2 text-muted"></i>{{ p[3] }}</div>
+                                    <div class="small"><i class="fa-solid fa-envelope me-2 text-muted"></i>{{ p[4] or '---' }}</div>
+                                </td>
+                                <td>{{ p[5].strftime('%d/%m/%Y') }}</td>
+                                <td class="text-end pe-3">
+                                    <td class="text-end pe-3">
+                                        <div class="btn-group" role="group">
+                                            <a href="{{ url_for('pacientes_detalhes', id_paciente=p[0]) }}" 
+                                            class="btn btn-sm btn-outline-primary" 
+                                            title="Ver Detalhes">
+                                                <i class="fa-solid fa-eye"></i>
+                                            </a>
+                                            
+                                            {% if session.get('perfil') == 'admin' %}
+                                            <a href="{{ url_for('remover_paciente', id_paciente=p[0]) }}" 
+                                            class="btn btn-sm btn-outline-danger" 
+                                            title="Desativar Paciente"
+                                            onclick="return confirm('Deseja desativar a ficha de {{ p[1] }}?')">
+                                                <i class="fa-solid fa-user-minus"></i>
+                                            </a>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    Nenhum paciente ativo encontrado.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            {% endfor %}
         </div>
     </div>
 
+    {% if session.get('perfil') == 'admin' %}
     <div class="modal fade" id="modalNovoPaciente" tabindex="-1">
         <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">Registar Novo Paciente</h5>
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa-solid fa-plus me-2"></i>Nova Ficha de Paciente</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -84,6 +155,31 @@
             </div>
         </div>
     </div>
+    {% endif %}
+
+    
+
+    <script>
+        function filtrarPacientes() {
+            let input = document.getElementById("searchInput");
+            let filter = input.value.toLowerCase();
+            let tr = document.getElementById("pacientesTable").getElementsByTagName("tr");
+
+            for (let i = 1; i < tr.length; i++) {
+                let tdNome = tr[i].getElementsByTagName("td")[0];
+                let tdNif = tr[i].getElementsByTagName("td")[1];
+                if (tdNome || tdNif) {
+                    let txtNome = tdNome.textContent || tdNome.innerText;
+                    let txtNif = tdNif.textContent || tdNif.innerText;
+                    if (txtNome.toLowerCase().indexOf(filter) > -1 || txtNif.toLowerCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 

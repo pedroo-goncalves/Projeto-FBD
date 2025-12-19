@@ -1,119 +1,252 @@
 <!DOCTYPE html>
 <html lang="pt-pt">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Equipa - SGA Psicologia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="./static/style.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-
 <body class="bg-light">
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="/"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
-            <div class="collapse navbar-collapse">
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navSGA">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navSGA">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/pacientes">Pacientes</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/equipa">Equipa</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/relatorios">Relatórios</a></li>
-                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3" href="/logout">Sair ({{ nome_user }})</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('pacientes') }}">Pacientes</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('equipa') }}">Equipa</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('agenda') }}">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('relatorios') }}">Relatórios</a></li>
+                    <li class="nav-item ms-lg-3">
+                        <a class="nav-link btn btn-sm btn-outline-light px-3" href="{{ url_for('logout') }}">Sair ({{ nome_user }})</a>
+                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container">
-        
+    <div class="container pb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h3 class="text-secondary fw-light">
+                    <i class="fa-solid fa-user-doctor me-2"></i>Corpo Clínico & Staff
+                    {% if session.get('perfil') == 'admin' %}
+                        <a href="{{ url_for('equipa_arquivo') }}" class="ms-3 small text-decoration-none text-muted" title="Ver Arquivo da Equipa">
+                            <i class="fa-solid fa-box-archive"></i>
+                        </a>
+                    {% endif %}
+                </h3>
+                <p class="text-muted small mb-0">
+                    {% if session.get('perfil') == 'admin' %}
+                        <span class="badge bg-info text-dark">Administrador</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Colaborador</span>
+                    {% endif %}
+                </p>
+            </div>
+            
+            {% if session.get('perfil') == 'admin' %}
+            <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoFuncionario">
+                <i class="fa-solid fa-user-plus me-2"></i>Registar Profissional
+            </button>
+            {% endif %}
+        </div>
+
         <div class="row mb-4">
-            <div class="col-12">
-                <h3 class="text-secondary fw-light"><i class="fa-solid fa-user-doctor me-2"></i>Corpo Clínico & Staff</h3>
-                <p class="text-muted">Consulte os contactos e especialidades dos colegas.</p>
+            <div class="col-md-6 col-lg-4">
+                <div class="input-group shadow-sm">
+                    <span class="input-group-text bg-white border-end-0 text-muted">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input type="text" id="staffSearch" class="form-control border-start-0 ps-0" 
+                           placeholder="Pesquisar por nome ou perfil..." onkeyup="filterStaff()">
+                </div>
             </div>
         </div>
 
-        <div class="row g-4">
-            
-            <div class="col-md-6 col-lg-3">
-                <div class="card h-100 shadow-sm text-center border-0">
-                    <div class="card-body p-4">
-                        <div class="mb-3">
-                            <img src="https://ui-avatars.com/api/?name=Joao+Santos&background=0d6efd&color=fff&size=128" class="rounded-circle shadow-sm" alt="Foto" width="100">
-                        </div>
-                        <h5 class="fw-bold mb-1">Dr. João Santos</h5>
-                        <p class="text-primary small fw-bold mb-2">Psicologia Clínica</p>
-                        <p class="text-muted small mb-4">Especialista em Terapia Cognitivo-Comportamental (TCC) e Perturbações de Ansiedade.</p>
+        <div class="row g-4" id="staffContainer">
+            {% for membro in equipa %}
+            <div class="col-md-6 col-lg-4 staff-card-col">
+                <div class="card h-100 shadow-sm border-0">
+                    <div class="card-body p-4 text-center">
+                        <img src="https://ui-avatars.com/api/?name={{ membro[0]|replace(' ', '+') }}&background=0d6efd&color=fff" class="rounded-circle mb-3 shadow-sm" width="70">
                         
-                        <div class="d-flex justify-content-center gap-2">
-                            <button class="btn btn-sm btn-outline-primary" title="Enviar Email"><i class="fa-solid fa-envelope"></i></button>
-                            <button class="btn btn-sm btn-outline-primary" title="Ver Agenda"><i class="fa-solid fa-calendar-days"></i></button>
+                        <h5 class="fw-bold mb-1">
+                            <a href="{{ url_for('equipa_detalhes', id_trabalhador=membro[5]) }}" class="text-dark text-decoration-none staff-name" title="Ver ficha completa">
+                                {{ membro[0] }} <i class="fa-solid fa-circle-info ms-1 small text-primary"></i>
+                            </a>
+                        </h5>
+                        <span class="badge bg-primary-subtle text-primary border rounded-pill mb-4 staff-category text-uppercase" style="font-size: 0.7rem;">{{ membro[3] }}</span>
+
+                        <div class="text-start">
+                            <label class="small text-muted fw-bold">Email Profissional</label>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control bg-light border-0 small" value="{{ membro[1] }}" readonly id="email-{{ loop.index }}">
+                                <button class="btn btn-outline-secondary border-0" onclick="copyValue('email-{{ loop.index }}')"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+
+                            <label class="small text-muted fw-bold">Contacto Telefónico</label>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control bg-light border-0" value="{{ membro[2] }}" readonly id="tel-{{ loop.index }}">
+                                <button class="btn btn-outline-secondary border-0" onclick="copyValue('tel-{{ loop.index }}')"><i class="fa-regular fa-copy"></i></button>
+                            </div>
                         </div>
+
+                        {% if session.get('perfil') == 'admin' %}
+                        <hr class="my-3">
+                        <a href="{{ url_for('remover_funcionario', id_trabalhador=membro[5]) }}" 
+                           class="btn btn-sm btn-outline-danger w-100" 
+                           onclick="return confirm('Tem a certeza que deseja desativar o acesso de {{ membro[0] }}?')">
+                            <i class="fa-solid fa-user-slash me-2"></i>Suspender Acesso
+                        </a>
+                        {% endif %}
                     </div>
                 </div>
             </div>
-
-            <div class="col-md-6 col-lg-3">
-                <div class="card h-100 shadow-sm text-center border-0">
-                    <div class="card-body p-4">
-                        <div class="mb-3">
-                            <img src="https://ui-avatars.com/api/?name=Maria+Costa&background=d63384&color=fff&size=128" class="rounded-circle shadow-sm" alt="Foto" width="100">
-                        </div>
-                        <h5 class="fw-bold mb-1">Dra. Maria Costa</h5>
-                        <p class="text-primary small fw-bold mb-2">Neuropsicologia</p>
-                        <p class="text-muted small mb-4">Avaliação neuropsicológica, reabilitação cognitiva e demências.</p>
-                        
-                        <div class="d-flex justify-content-center gap-2">
-                            <button class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-envelope"></i></button>
-                            <button class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-calendar-days"></i></button>
-                        </div>
-                    </div>
-                </div>
+            {% else %}
+            <div class="col-12 text-center py-5 text-muted">
+                <i class="fa-solid fa-users-viewfinder fa-3x mb-3"></i>
+                <p>Nenhum colaborador registado ou ativo no sistema.</p>
             </div>
-
-             <div class="col-md-6 col-lg-3">
-                <div class="card h-100 shadow-sm text-center border-0">
-                    <div class="card-body p-4">
-                        <div class="mb-3">
-                            <img src="https://ui-avatars.com/api/?name=Pedro+Lopes&background=198754&color=fff&size=128" class="rounded-circle shadow-sm" alt="Foto" width="100">
-                        </div>
-                        <h5 class="fw-bold mb-1">Dr. Pedro Lopes</h5>
-                        <p class="text-primary small fw-bold mb-2">Psiquiatria</p>
-                        <p class="text-muted small mb-4">Acompanhamento farmacológico, perturbações do humor e sono.</p>
-                        
-                        <div class="d-flex justify-content-center gap-2">
-                            <button class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-envelope"></i></button>
-                            <button class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-calendar-days"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-             <div class="col-md-6 col-lg-3">
-                <div class="card h-100 shadow-sm text-center border-warning border-1">
-                    <div class="card-body p-4">
-                        <div class="mb-3">
-                            <img src="https://ui-avatars.com/api/?name=Sofia+Alves&background=ffc107&color=000&size=128" class="rounded-circle shadow-sm" alt="Foto" width="100">
-                        </div>
-                        <h5 class="fw-bold mb-1">Sofia Alves</h5>
-                        <p class="text-warning text-dark small fw-bold mb-2">Secretariado</p>
-                        <p class="text-muted small mb-4">Gestão de agenda, faturação, acolhimento e marcações.</p>
-                        
-                        <div class="d-flex justify-content-center gap-2">
-                            <button class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-envelope"></i></button>
-                            <button class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-phone"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+            {% endfor %}
         </div>
     </div>
-    
+
+    {% if session.get('perfil') == 'admin' %}
+    <div class="modal fade" id="modalNovoFuncionario" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content border-0">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold">Registar Novo Profissional</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="{{ url_for('criar_funcionario') }}" method="POST">
+                    <div class="modal-body p-4">
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="form-label small fw-bold">Nome Completo</label>
+                                <input type="text" name="nome" class="form-control" required minlength="3">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold">NIF</label>
+                                <input type="text" name="nif" class="form-control" pattern="[0-9]{9}" required maxlength="9">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Email</label>
+                                <input type="email" name="email" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Telemóvel</label>
+                                <input type="text" name="telemovel" class="form-control" pattern="[0-9]{9}" required maxlength="9">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Data Nascimento</label>
+                                <input type="date" name="data_nasc" class="form-control" max="{{ now_date }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Cédula Profissional</label>
+                                <input type="text" name="cedula" class="form-control" maxlength="5" placeholder="Opcional">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Regime de Contratação</label>
+                                <select name="categoria" id="selectCategoria" class="form-select" onchange="toggleCampos()" required>
+                                    <option value="CONTRATADO">Contratado (SGA_CONTRATADO)</option>
+                                    <option value="PRESTADOR">Prestador de Serviços (SGA_PRESTADOR_SERVICO)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Perfil de Sistema</label>
+                                <select name="perfil" class="form-select" required>
+                                    <option value="colaborador">Colaborador (Médico/Terapeuta)</option>
+                                    <option value="admin">Administrador</option>
+                                </select>
+                            </div>
+                            
+                            <div id="seccaoContratado" class="col-12">
+                                <label class="form-label small fw-bold">Tipo de Contrato</label>
+                                <input type="text" name="contrato_tipo" class="form-control" placeholder="Ex: Termo Certo, Indeterminado">
+                            </div>
+
+                            <div id="seccaoPrestador" class="col-12 d-none">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold">Ordem Profissional</label>
+                                        <input type="text" name="ordem" class="form-control" placeholder="Ex: Ordem dos Psicólogos">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold">Remuneração (€)</label>
+                                        <input type="number" step="0.01" name="remuneracao" class="form-control">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label small fw-bold">Definir Password Inicial</label>
+                                <input type="password" name="senha" class="form-control" required minlength="5">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary px-4 shadow-sm">Confirmar Registo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <script>
+        // Pesquisa em tempo real por Nome ou Perfil
+        function filterStaff() {
+            const input = document.getElementById('staffSearch').value.toLowerCase();
+            const cards = document.getElementsByClassName('staff-card-col');
+
+            for (let i = 0; i < cards.length; i++) {
+                const name = cards[i].querySelector('.staff-name').innerText.toLowerCase();
+                const category = cards[i].querySelector('.staff-category').innerText.toLowerCase();
+
+                if (name.includes(input) || category.includes(input)) {
+                    cards[i].style.display = "";
+                } else {
+                    cards[i].style.display = "none";
+                }
+            }
+        }
+
+        // Cópia de valores para o clipboard
+        function copyValue(id) {
+            const input = document.getElementById(id);
+            navigator.clipboard.writeText(input.value);
+            const icon = document.querySelector(`#${id} + button i`);
+            icon.className = 'fa-solid fa-check text-success';
+            setTimeout(() => icon.className = 'fa-regular fa-copy', 1500);
+        }
+
+        // Alternância de campos condicional no Modal
+        function toggleCampos() {
+            const cat = document.getElementById('selectCategoria').value;
+            document.getElementById('seccaoContratado').classList.toggle('d-none', cat !== 'CONTRATADO');
+            document.getElementById('seccaoPrestador').classList.toggle('d-none', cat !== 'PRESTADOR');
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
