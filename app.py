@@ -12,6 +12,7 @@ from persistence.pedidos import contar_pedidos_pendentes
 from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres, listar_eventos_calendario, obter_detalhes_atendimento, editar_agendamento, cancelar_agendamento
 from persistence.salas import contar_salas_livres
 from persistence.trabalhadores import medicos_agenda_dropdown, obter_dados_login
+from persistence.dashboard import obter_totais_dashboard, listar_proximas_consultas
 
 load_dotenv()
 
@@ -88,22 +89,31 @@ def logout():
 def dashboard():
     conn = get_db_connection()
     cursor = conn.cursor()
-    try: 
-        total_p = contar_pacientes(cursor)
-        total_pendentes = contar_pedidos_pendentes(cursor)
-        consultas_hoje = contar_atendimentos_hoje(cursor)
-        salas_livres = contar_salas_livres(cursor)
-    except Exception as e:
-        print(f"Erro Dashboard: {e}")
-        total_p, total_pendentes, salas_livres = 0, 0, 0
-        consultas_hoje = {'total': 0, 'online': 0, 'presencial': 0}
-    finally:
-        cursor.close()
-        conn.close()
+    
+    user_id = session.get('user_id')
+    perfil = session.get('perfil')
+    
+    # --- CORREÇÃO DO NOME (Safety Check) ---
+    # Tenta obter da sessão. Se falhar, vai à BD buscar.
+    nome_user = session.get('nome_user')
+    if not nome_user:
+        # Busca rápida do nome se não estiver em sessão
+        cursor.execute("SELECT nome FROM SGA_PESSOA p JOIN SGA_TRABALHADOR t ON p.NIF = t.NIF WHERE t.id_trabalhador = ?", (user_id,))
+        res = cursor.fetchone()
+        nome_user = res[0] if res else 'Utilizador'
+        # Opcional: Atualizar sessão para a próxima vez ser rápido
+        session['nome_user'] = nome_user
 
-    return render_template('dashboard.html', nome_user=session.get('user_name'),
-                           total_pacientes=total_p, total_pedidos=total_pendentes, 
-                           consultas=consultas_hoje, salas_livres=salas_livres)
+    # Chamadas Modulares (Persistência)
+    totais = obter_totais_dashboard(cursor, user_id, perfil)
+    proximas = listar_proximas_consultas(cursor, user_id, perfil)
+    
+    conn.close()
+    
+    return render_template('dashboard.html', 
+                           totais=totais,
+                           proximas_consultas=proximas,
+                           nome_user=nome_user) # Agora vai sempre preenchido
 
 @app.route('/pacientes')
 @login_required
@@ -435,21 +445,30 @@ def pacientes_arquivo():
 def api_eventos():
     conn = get_db_connection()
     cursor = conn.cursor()
-    rows = listar_eventos_calendario(cursor, session['user_id'], session.get('perfil'))
+    
+    # Ler filtros do URL
+    filtro_medico = request.args.get('filtro_medico')
+    filtro_paciente_nif = request.args.get('filtro_paciente')
+    
+    # Passar para a persistência
+    rows = listar_eventos_calendario(
+        cursor, 
+        session['user_id'], 
+        session.get('perfil'),
+        filtro_medico_id=filtro_medico,
+        filtro_paciente_nif=filtro_paciente_nif
+    )
     conn.close()
     
     eventos = []
     for row in rows:
-        # row[1] é Paciente, row[5] é Médico
         titulo = row[1]
-        first_name = row[5].split()[0]
-        
-        # Se for Admin, mostra o nome do médico antes
         if session.get('perfil') == 'admin':
-            titulo = f"[{first_name[0]}. {row[5].split()[1]}] {row[1]}" # Ex: [Dr.João] Ana Silva
+            titulo = f"[{row[5].split()[0]}] {row[1]}"
 
         eventos.append({
             'id': row[0],
+            'num_atendimento': row[0], # Redundância segura
             'title': titulo,
             'start': row[2].isoformat(),
             'end': row[3].isoformat(),
@@ -555,11 +574,11 @@ def rota_cancelar_agendamento(id_atendimento):
         cancelar_agendamento(cursor, id_atendimento)
         conn.commit()
         conn.close()
-        flash('Consulta cancelada.', 'success')
+        flash('Consulta cancelada com sucesso.', 'success')
     except Exception as e:
         flash(f'Erro ao cancelar: {e}', 'danger')
         
-    return redirect(url_for('agenda'))
+    return redirect(request.referrer or url_for('agenda'))
 
 if __name__ == '__main__':
     app.run(debug=True)

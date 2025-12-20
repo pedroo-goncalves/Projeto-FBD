@@ -202,6 +202,43 @@
                 <i class="fa-solid fa-plus me-2"></i>Novo Agendamento
             </button>
         </div>
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-3">
+                <div class="row g-3 align-items-center">
+                    <div class="col-auto">
+                        <span class="text-secondary fw-bold small text-uppercase"><i
+                                class="fa-solid fa-filter me-2"></i>Filtrar
+                            Agenda:</span>
+                    </div>
+
+                    {% if session['perfil'] == 'admin' %}
+                    <div class="col-md-3">
+                        <select id="filtroMedico" class="form-select form-select-sm">
+                            <option value="">Todos os Médicos</option>
+                            {% for m in medicos %}
+                            <option value="{{ m.id }}">{{ m.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    <div class="col-md-3">
+                        <select id="filtroPaciente" class="form-select form-select-sm">
+                            <option value="">Todos os Pacientes</option>
+                            {% for p in pacientes %}
+                            <option value="{{ p.nif }}">{{ p.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-auto ms-auto">
+                        <button id="btnLimparFiltros" class="btn btn-sm btn-link text-decoration-none text-muted">
+                            <i class="fa-solid fa-xmark me-1"></i>Limpar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id='calendar'></div>
     </div>

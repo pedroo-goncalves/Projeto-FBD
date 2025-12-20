@@ -25,7 +25,7 @@ def obter_horarios_livres(cursor, id_medico, data, is_online=0, duracao=60, igno
         print(f"Erro slots: {e}")
         return []
     
-def listar_eventos_calendario(cursor, user_id, perfil):
+def listar_eventos_calendario(cursor, user_id, perfil, filtro_medico_id=None, filtro_paciente_nif=None):
     # Query Base
     query = """
     SELECT 
@@ -39,19 +39,32 @@ def listar_eventos_calendario(cursor, user_id, perfil):
     JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
     JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
     JOIN SGA_PESSOA PessPac ON Pac.NIF = PessPac.NIF
-    -- Joins para saber o médico
     JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
     JOIN SGA_TRABALHADOR T ON TA.id_trabalhador = T.id_trabalhador
     JOIN SGA_PESSOA PessMed ON T.NIF = PessMed.NIF
     WHERE A.estado != 'cancelado'
     """
+    
+    params = []
 
+    # 1. Regra de Segurança Base (Perfil)
     if perfil == 'colaborador':
         query += " AND TA.id_trabalhador = ?"
-        cursor.execute(query, (user_id,))
-    else:
-        cursor.execute(query)
-            
+        params.append(user_id)
+        # Nota: Se for colaborador, ignoramos o filtro_medico_id que vem do front-end
+        # para garantir que ele não vê agenda de outros.
+    
+    # 2. Filtro de Médico (Apenas se for Admin)
+    elif perfil == 'admin' and filtro_medico_id:
+        query += " AND TA.id_trabalhador = ?"
+        params.append(filtro_medico_id)
+
+    # 3. Filtro de Paciente (Para todos)
+    if filtro_paciente_nif:
+        query += " AND PessPac.NIF = ?"
+        params.append(filtro_paciente_nif)
+
+    cursor.execute(query, params)
     return cursor.fetchall()
 
 

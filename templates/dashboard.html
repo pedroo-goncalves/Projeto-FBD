@@ -7,191 +7,313 @@
     <title>Dashboard - SGA Psicologia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <style>
+        /* --- ESTILO PARTILHADO COM AGENDA (DESIGN NOVO) --- */
+        .navbar-sga {
+            background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%) !important;
+            padding: 1rem 0;
+            box-shadow: 0 4px 20px rgba(13, 110, 253, 0.2);
+        }
+
+        .navbar-brand {
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            font-size: 1.4rem;
+        }
+
+        .nav-link {
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        .nav-link:hover {
+            opacity: 0.8;
+        }
+
+        /* CORREÇÃO DO BOTÃO SAIR */
+        .btn-sair {
+            border: 2px solid rgba(255, 255, 255, 0.8) !important;
+            color: white !important;
+            transition: all 0.3s ease;
+        }
+
+        .btn-sair:hover {
+            background-color: white !important;
+            color: #0d6efd !important;
+            transform: translateY(-2px);
+        }
+
+        /* --- DASHBOARD CARDS --- */
+        .card-stat {
+            border: none;
+            border-radius: 20px;
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+        }
+
+        .card-stat:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Decoração dos Cards */
+        .card-stat::after {
+            content: '';
+            position: absolute;
+            top: -20px;
+            right: -20px;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .icon-box {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        /* --- TABELA MODERNA (CORRIGIDA) --- */
+        .table-custom {
+            border-collapse: separate;
+            border-spacing: 0 10px;
+            /* Espaço entre linhas */
+        }
+
+        /* Cabeçalho alinhado com o conteúdo */
+        .table-custom th {
+            padding: 15px;
+            /* IMPORTANTE: Igual ao td para alinhar texto */
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            border: none;
+        }
+
+        /* Linhas (Cartões Flutuantes) */
+        .table-custom tbody tr {
+            background: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
+            transition: transform 0.2s;
+        }
+
+        .table-custom tbody tr:hover {
+            transform: scale(1.01);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .table-custom td {
+            padding: 15px;
+            /* Espaçamento interno generoso */
+            vertical-align: middle;
+            border: none;
+        }
+
+        /* Arredondar pontas da linha */
+        .table-custom td:first-child {
+            border-top-left-radius: 10px;
+            border-bottom-left-radius: 10px;
+        }
+
+        .table-custom td:last-child {
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+
+        .welcome-header {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.03);
+            margin-bottom: 30px;
+        }
+    </style>
 </head>
 
 <body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="/">
-                <i class="fa-solid fa-brain me-2"></i>SGA Psicologia
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link active" href="/dashboard">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/pacientes">Pacientes</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/equipa">Equipa</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/relatorios">Relatórios</a></li>
 
-                    <li class="nav-item ms-lg-3">
-                        <a class="nav-link btn btn-sm btn-outline-light px-3" href="/login">Sair</a>
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-sga mb-5">
+        <div class="container">
+            <a class="navbar-brand" href="/dashboard"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav ms-auto align-items-center">
+                    <li class="nav-item"><a class="nav-link active fw-bold" href="/dashboard">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
+                    <li class="nav-item ms-3">
+                        <a class="nav-link btn btn-sm btn-outline-light px-4 rounded-pill btn-sair"
+                            href="/logout">Sair</a>
                     </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
+    <div class="container pb-5">
 
-        <div class="row mb-4">
-            <div class="col-12">
-                <h3 class="text-secondary fw-light">Painel de Controlo</h3>
-                <p class="text-muted">Visão geral da clínica e tarefas pendentes.</p>
+        <div class="welcome-header d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="fw-bold text-dark mb-1">Olá, {{ nome_user.split()[0] }}! 👋</h2>
+                <p class="text-muted mb-0">Resumo da atividade clínica.</p>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill">
+                    <i class="fa-regular fa-calendar me-2"></i>{{ totais.consultas_hoje }} Consultas Hoje
+                </span>
             </div>
         </div>
 
-        <div class="row g-3 mb-4">
-            <div class="col-md-3">
-                <div class="card text-white bg-primary h-100 card-dashboard position-relative overflow-hidden">
-                    <div class="card-body">
-                        <h6 class="card-title text-uppercase">Consultas Hoje</h6>
-                        <h2 class="display-5 fw-bold">{{ consultas.total }}</h2>
-                        <small>{{ consultas.presencial }} Presenciais, {{ consultas.online }} Online</small>
-                        <i class="fa-regular fa-calendar-check icon-bg"></i>
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card card-stat text-white h-100 shadow"
+                    style="background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); cursor: pointer;"
+                    onclick="window.location.href='/agenda'">
+                    <div class="card-body p-4">
+                        <div class="icon-box"><i class="fa-solid fa-calendar-days"></i></div>
+                        <h5 class="card-title fw-bold">Agenda</h5>
+                        <p class="card-text opacity-75">Gerir Marcações</p>
+                        <div class="mt-2">
+                            <span class="btn btn-sm btn-white text-primary bg-white fw-bold rounded-pill px-3">Entrar <i
+                                    class="fa-solid fa-arrow-right ms-1"></i></span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3">
-                <div class="card text-white bg-warning h-100 card-dashboard position-relative overflow-hidden">
-                    <div class="card-body">
-                        <h6 class="card-title text-uppercase">Pedidos Pendentes</h6>
-                        <h2 class="display-5 fw-bold text-dark">{{ total_pedidos }}</h2>
-                        <small class="text-dark">Requerem avaliação</small>
-                        <i class="fa-solid fa-inbox icon-bg text-dark"></i>
+            <div class="col-md-4">
+                <div class="card card-stat text-white h-100 shadow"
+                    style="background: linear-gradient(135deg, #20c997 0%, #0d6efd 100%);">
+                    <div class="card-body p-4">
+                        <div class="icon-box"><i class="fa-solid fa-users"></i></div>
+                        <h2 class="fw-bold mb-0">{{ totais.total_pacientes }}</h2>
+                        <p class="fw-bold opacity-75">Pacientes Ativos</p>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3">
-                <div class="card text-white bg-success h-100 card-dashboard position-relative overflow-hidden">
-                    <div class="card-body">
-                        <h6 class="card-title text-uppercase">Pacientes Ativos</h6>
-                        <h2 class="display-5 fw-bold">{{ total_pacientes }}</h2>
-                        <small>Registados no sistema</small>
-                        <i class="fa-solid fa-users icon-bg"></i>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-3">
-                <div class="card text-white bg-info h-100 card-dashboard position-relative overflow-hidden">
-                    <div class="card-body">
-                        <h6 class="card-title text-uppercase">Salas Livres</h6>
-                        <h2 class="display-5 fw-bold">{{ salas_livres }}</h2>
-                        <small>Neste momento</small>
-                        <i class="fa-solid fa-door-open icon-bg"></i>
+            <div class="col-md-4">
+                <div class="card card-stat text-white h-100 shadow"
+                    style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <div class="card-body p-4">
+                        {% if session['perfil'] == 'admin' %}
+                        <div class="icon-box"><i class="fa-solid fa-user-doctor"></i></div>
+                        <h2 class="fw-bold mb-0">{{ totais.total_equipa }}</h2>
+                        <p class="fw-bold opacity-75">Membros da Equipa</p>
+                        {% else %}
+                        <div class="icon-box"><i class="fa-solid fa-check-double"></i></div>
+                        <h2 class="fw-bold mb-0">{{ totais.consultas_hoje }}</h2>
+                        <p class="fw-bold opacity-75">Consultas Hoje</p>
+                        {% endif %}
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="row">
+            <div class="col-12">
+                <h5 class="fw-bold text-secondary text-uppercase small mb-3 ps-2">
+                    <i class="fa-regular fa-clock me-2"></i>Próximos Atendimentos
+                </h5>
 
-            <div class="col-lg-8 mb-4">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0 text-primary"><i class="fa-regular fa-clock me-2"></i>Próximos Atendimentos</h5>
-                        <a href="/agenda" class="btn btn-sm btn-outline-primary">Ver Agenda</a>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th class="ps-4">Hora</th>
-                                        <th>Paciente</th>
-                                        <th>Profissional</th>
-                                        <th>Sala</th>
-                                        <th>Estado</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td class="ps-4 fw-bold">14:00</td>
-                                        <td>Ana Silva</td>
-                                        <td>Dr. João Santos</td>
-                                        <td><span class="badge bg-secondary">Sala 1</span></td>
-                                        <td><span class="badge bg-success">Confirmado</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="ps-4 fw-bold">15:30</td>
-                                        <td>Carlos Ferreira</td>
-                                        <td>Dra. Maria Costa</td>
-                                        <td><span class="badge bg-info text-dark">Online</span></td>
-                                        <td><span class="badge bg-warning text-dark">Pendente</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="ps-4 fw-bold">16:00</td>
-                                        <td>Sofia Martins</td>
-                                        <td>Dr. João Santos</td>
-                                        <td><span class="badge bg-secondary">Sala 2</span></td>
-                                        <td><span class="badge bg-success">Confirmado</span></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                {% if proximas_consultas %}
+                <div class="table-responsive">
+                    <table class="table table-custom table-borderless">
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Paciente</th>
+
+                                {% if session['perfil'] == 'admin' %}
+                                <th>Médico</th>
+                                {% endif %}
+
+                                <th>Estado</th>
+                                <th class="text-end">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in proximas_consultas %}
+                            <tr style="cursor: pointer;" onclick="window.location.href='/agenda?data={{ c.dia_iso }}'">
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        <span class="fw-bold text-dark">{{ c.hora }}</span>
+                                        <span class="small text-muted">{{ c.dia }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="fw-bold text-primary">{{ c.paciente }}</span>
+                                </td>
+
+                                {% if session['perfil'] == 'admin' %}
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-light rounded-circle p-1 me-2 text-secondary d-flex justify-content-center align-items-center"
+                                            style="width: 25px; height: 25px;">
+                                            <i class="fa-solid fa-user-doctor fa-xs"></i>
+                                        </div>
+                                        <span class="text-dark">{{ c.medico.split()[0] }}</span>
+                                    </div>
+                                </td>
+                                {% endif %}
+
+                                <td>
+                                    {% if c.estado == 'agendado' %}
+                                    <span
+                                        class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill">Agendado</span>
+                                    {% else %}
+                                    <span
+                                        class="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2 rounded-pill">{{
+                                        c.estado }}</span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="text-end">
+                                    <div class="d-flex gap-2 justify-content-end">
+                                        <a href="/agenda?editar={{ c.id }}"
+                                            class="btn btn-sm btn-light border text-warning hover-warning shadow-sm"
+                                            onclick="event.stopPropagation();" title="Alterar">
+                                            <i class="fa-solid fa-pen"></i>
+                                        </a>
+
+                                        <a href="/cancelar_agendamento/{{ c.id }}"
+                                            class="btn btn-sm btn-light border text-danger hover-danger shadow-sm"
+                                            onclick="event.stopPropagation(); return confirm('Tem a certeza que deseja cancelar esta consulta de {{ c.paciente }}?');"
+                                            title="Cancelar">
+                                            <i class="fa-solid fa-xmark"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
-            </div>
-
-            <div class="col-lg-4 mb-4">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-white py-3">
-                        <h5 class="mb-0 text-warning"><i class="fa-solid fa-bell me-2"></i>Novos Pedidos</h5>
-                    </div>
-                    <div class="list-group list-group-flush">
-                        <div class="list-group-item p-3">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1 fw-bold">Pedido #402</h6>
-                                <small class="text-muted">Hoje</small>
-                            </div>
-                            <p class="mb-1 small">Paciente: <strong>Rui Pedro</strong></p>
-                            <small class="text-muted">Destino: <em>Psicologia Clínica</em></small>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-success py-0" title="Aceitar"><i
-                                        class="fa-solid fa-check"></i></button>
-                                <button class="btn btn-sm btn-danger py-0" title="Recusar"><i
-                                        class="fa-solid fa-xmark"></i></button>
-                                <button class="btn btn-sm btn-secondary py-0" title="Reencaminhar"><i
-                                        class="fa-solid fa-share"></i></button>
-                            </div>
-                        </div>
-                        <div class="list-group-item p-3">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1 fw-bold">Pedido #401</h6>
-                                <small class="text-muted">Ontem</small>
-                            </div>
-                            <p class="mb-1 small">Paciente: <strong>Joana Lima</strong></p>
-                            <small class="text-muted">Destino: <em>Dra. Maria Costa</em></small>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-success py-0"><i class="fa-solid fa-check"></i></button>
-                                <button class="btn btn-sm btn-danger py-0"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-footer bg-white text-center">
-                        <a href="#" class="text-decoration-none small">Ver todos os pedidos</a>
-                    </div>
+                {% else %}
+                <div class="text-center py-5 bg-white rounded-4 shadow-sm">
+                    <div class="text-muted mb-3"><i class="fa-regular fa-calendar-xmark fa-3x opacity-25"></i></div>
+                    <h6 class="fw-bold text-secondary">Sem consultas próximas</h6>
+                    <p class="small text-muted">Aproveite o tempo livre!</p>
+                    <a href="/agenda" class="btn btn-primary rounded-pill px-4 mt-2">Ir para Agenda</a>
                 </div>
+                {% endif %}
             </div>
-
         </div>
+
     </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 

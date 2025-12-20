@@ -1,9 +1,14 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     // =========================================================
-    // 1. REFERÊNCIAS GERAIS
+    // 1. REFERÊNCIAS GERAIS AO DOM
     // =========================================================
     const calendarEl = document.getElementById('calendar');
+
+    // --- Filtros (NOVO) ---
+    const filtroMedico = document.getElementById('filtroMedico');
+    const filtroPaciente = document.getElementById('filtroPaciente');
+    const btnLimparFiltros = document.getElementById('btnLimparFiltros');
 
     // --- Modal de CRIAÇÃO ---
     const modalAgendamentoEl = document.getElementById('modalAgendamento');
@@ -11,7 +16,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const selectHora = document.getElementById('selectHora');
     const selectMedico = document.getElementById('selectMedico');
     const checkOnline = document.getElementById('checkOnline');
+    const selectPaciente = document.getElementById('selectPaciente');
     const selectDuracaoCriar = document.querySelector('#modalAgendamento select[name="duracao"]');
+    const btnGlobal = document.getElementById('btnNovoAgendamentoGlobal');
 
     // --- Modal de EDIÇÃO ---
     const modalDetalhesEl = document.getElementById('modalDetalhes');
@@ -22,10 +29,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const detalheIdMedico = document.getElementById('detalheIdMedico');
     const badge = document.getElementById('badgeEstado');
     const inpPaciente = document.getElementById('detalhePaciente');
-    const inpMedico = document.getElementById('detalheMedico'); // Pode ser NULL se não for admin
+    const inpMedico = document.getElementById('detalheMedico');
     const btnCancel = document.getElementById('btnCancelarConsulta');
 
-    // Variável de memória
     let horaOriginalEdicao = null;
 
     // --- Paciente Rápido ---
@@ -33,17 +39,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const formRapido = document.getElementById('formRapidoPaciente');
     const btnCancelar = document.getElementById('btnCancelarRapido');
     const btnSalvar = document.getElementById('btnSalvarRapido');
-    const selectPaciente = document.getElementById('selectPaciente');
     const msgErro = document.getElementById('msgErroRapido');
 
 
     // =========================================================
-    // 2. CONFIG CALENDÁRIO
+    // 2. INICIALIZAÇÃO E CALENDÁRIO
     // =========================================================
+
+    // Ler parâmetros URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const editId = urlParams.get('editar');
+    const jumpDate = urlParams.get('data');
+
     if (calendarEl) {
         const calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: sessionStorage.getItem('calendarView') || 'dayGridMonth',
-            initialDate: sessionStorage.getItem('calendarDate') || new Date(),
+            initialDate: jumpDate || sessionStorage.getItem('calendarDate') || new Date(),
             locale: 'pt',
             firstDay: 1,
 
@@ -70,7 +81,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 { daysOfWeek: [1, 2, 3, 4, 5], startTime: '14:00', endTime: '18:00' }
             ],
 
-            events: '/api/eventos',
+            // --- FONTE DE DADOS COM FILTROS DINÂMICOS ---
+            events: {
+                url: '/api/eventos',
+                extraParams: function () {
+                    return {
+                        // Lê o valor ATUAL dos selects sempre que busca eventos
+                        filtro_medico: filtroMedico ? filtroMedico.value : '',
+                        filtro_paciente: filtroPaciente ? filtroPaciente.value : ''
+                    };
+                }
+            },
+
             navLinks: true,
             selectable: true,
 
@@ -85,14 +107,46 @@ document.addEventListener('DOMContentLoaded', function () {
                 abrirModalDetalhes(idAtendimento);
             }
         });
+
         calendar.render();
+
+        // --- LISTENERS DOS FILTROS (AQUI DENTRO PARA TER ACESSO AO 'calendar') ---
+
+        if (filtroMedico) {
+            filtroMedico.addEventListener('change', function () {
+                console.log("Filtro Médico Alterado:", this.value); // Debug
+                calendar.refetchEvents(); // Força atualização imediata
+            });
+        }
+
+        if (filtroPaciente) {
+            filtroPaciente.addEventListener('change', function () {
+                console.log("Filtro Paciente Alterado:", this.value); // Debug
+                calendar.refetchEvents(); // Força atualização imediata
+            });
+        }
+
+        if (btnLimparFiltros) {
+            btnLimparFiltros.addEventListener('click', function () {
+                if (filtroMedico) filtroMedico.value = "";
+                if (filtroPaciente) filtroPaciente.value = "";
+                calendar.refetchEvents(); // Limpa e recarrega
+            });
+        }
+
+        // Auto-abrir modal se necessário
+        if (editId) {
+            setTimeout(() => {
+                abrirModalDetalhes(editId);
+                window.history.replaceState({}, document.title, "/agenda");
+            }, 500);
+        }
     }
 
     function validarHorarioClique(dateObj, viewType) {
         const diaSemana = dateObj.getDay();
         if (diaSemana === 0 || diaSemana === 6) return false;
         if (viewType === 'dayGridMonth') return true;
-
         const hora = dateObj.getHours();
         if (hora === 13) return false;
         if (hora < 9 || hora >= 18) return false;
@@ -136,10 +190,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     async function carregarHorariosCriacao() {
+        if (!selectHora) return;
+
         const medicoId = selectMedico ? selectMedico.value : null;
         const dataVal = inputData ? inputData.value : null;
         const isOnline = checkOnline && checkOnline.checked ? 1 : 0;
         const duracao = selectDuracaoCriar ? selectDuracaoCriar.value : 60;
+
+        // 👉 Guardar a hora atualmente selecionada (se existir)
+        const horaSelecionadaAntes = selectHora.value;
 
         if (medicoId && dataVal) {
             selectHora.innerHTML = '<option>A verificar...</option>';
@@ -150,7 +209,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const response = await fetch(url);
                 const horarios = await response.json();
 
-                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
+                selectHora.innerHTML = '<option value="" selected disabled>Escolha uma hora</option>';
 
                 if (horarios.length === 0) {
                     selectHora.innerHTML += '<option disabled>Sem vagas</option>';
@@ -161,6 +220,19 @@ document.addEventListener('DOMContentLoaded', function () {
                         option.textContent = hora;
                         selectHora.appendChild(option);
                     });
+
+                    // 👉 Tentar manter a hora selecionada, se ainda for válida
+                    if (horaSelecionadaAntes) {
+                        const existe = Array.from(selectHora.options)
+                            .some(opt => opt.value === horaSelecionadaAntes);
+
+                        if (existe) {
+                            selectHora.value = horaSelecionadaAntes;
+                            selectHora.classList.add('is-valid');
+                            setTimeout(() => selectHora.classList.remove('is-valid'), 800);
+                        }
+                    }
+
                     selectHora.disabled = false;
                 }
             } catch (error) {
@@ -170,10 +242,24 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+
     if (selectMedico) selectMedico.addEventListener('change', carregarHorariosCriacao);
     if (inputData) inputData.addEventListener('input', carregarHorariosCriacao);
     if (checkOnline) checkOnline.addEventListener('change', carregarHorariosCriacao);
     if (selectDuracaoCriar) selectDuracaoCriar.addEventListener('change', carregarHorariosCriacao);
+
+    if (btnGlobal) {
+        btnGlobal.addEventListener('click', function () {
+            if (inputData) inputData.value = '';
+            if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
+            if (selectHora) {
+                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
+                selectHora.disabled = true;
+                selectHora.classList.remove('is-valid');
+            }
+            if (checkOnline) checkOnline.checked = false;
+        });
+    }
 
 
     // =========================================================
@@ -189,22 +275,22 @@ document.addEventListener('DOMContentLoaded', function () {
             if (response.ok) {
                 detalheId.value = dados.id;
                 inpPaciente.value = dados.paciente;
-
-                // PROTEÇÃO: Só preenche o médico se o campo existir (se for admin)
-                if (inpMedico) {
-                    inpMedico.value = dados.medico;
-                }
-
-                detalheIdMedico.value = dados.id_medico; // Este existe sempre (hidden)
+                if (inpMedico) inpMedico.value = dados.medico;
+                detalheIdMedico.value = dados.id_medico;
                 detalheData.value = dados.data_iso;
                 detalheDuracao.value = dados.duracao || 60;
 
-                // MEMORIZAR HORA
                 horaOriginalEdicao = dados.hora_iso;
 
                 if (badge) {
                     badge.textContent = dados.estado.toUpperCase();
-                    badge.className = dados.estado === 'finalizado' ? 'badge bg-success shadow-sm' : 'badge bg-white text-dark bg-opacity-75 shadow-sm badge-estado';
+                    if (dados.estado === 'finalizado') {
+                        badge.className = 'badge bg-success shadow-sm';
+                    } else if (dados.estado === 'cancelado') {
+                        badge.className = 'badge bg-danger shadow-sm';
+                    } else {
+                        badge.className = 'badge bg-white text-dark bg-opacity-75 shadow-sm badge-estado';
+                    }
                 }
 
                 carregarSlotsEdicao(dados.id_medico, dados.data_iso, dados.hora_iso, dados.duracao, dados.id);
@@ -257,7 +343,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Listeners Edição
     if (detalheData) {
         detalheData.addEventListener('change', function () {
             carregarSlotsEdicao(detalheIdMedico.value, this.value, null, detalheDuracao.value, detalheId.value);
@@ -266,7 +351,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (detalheDuracao) {
         detalheDuracao.addEventListener('change', function () {
-            // Usa a horaOriginalEdicao para tentar manter a seleção
             carregarSlotsEdicao(
                 detalheIdMedico.value,
                 detalheData.value,
@@ -342,31 +426,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 btnSalvar.textContent = 'Guardar';
                 btnSalvar.disabled = false;
             }
-        });
-    }
-
-    // =========================================================
-    // 6. LIMPAR MODAL AO CLICAR NO BOTÃO "NOVO AGENDAMENTO"
-    // =========================================================
-    const btnGlobal = document.getElementById('btnNovoAgendamentoGlobal');
-
-    if (btnGlobal) {
-        btnGlobal.addEventListener('click', function () {
-            // 1. Limpar Data
-            if (inputData) inputData.value = '';
-
-            // 2. Resetar Duração
-            if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
-
-            // 3. Resetar Horas (Voltar ao estado "--:--")
-            if (selectHora) {
-                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
-                selectHora.disabled = true;
-                selectHora.classList.remove('is-valid'); // Remove o verde se tiver ficado
-            }
-
-            // 4. (Opcional) Se quiseres resetar o switch Online também
-            if (checkOnline) checkOnline.checked = false;
         });
     }
 });

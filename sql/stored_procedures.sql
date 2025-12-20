@@ -978,3 +978,108 @@ BEGIN
     UPDATE SGA_ATENDIMENTO SET estado = 'cancelado' WHERE num_atendimento = @id_atendimento;
 END
 GO
+
+
+-- 1. UDF: Contar Pacientes Ativos (Reutilizável)
+CREATE OR ALTER FUNCTION udf_ContarPacientesAtivos()
+RETURNS INT
+AS
+BEGIN
+    RETURN (SELECT COUNT(*) FROM SGA_PACIENTE WHERE ativo = 1);
+END
+GO
+
+-- 2. UDF: Contar Equipa Ativa (Reutilizável)
+CREATE OR ALTER FUNCTION udf_ContarEquipaAtiva()
+RETURNS INT
+AS
+BEGIN
+    RETURN (SELECT COUNT(*) FROM SGA_TRABALHADOR WHERE ativo = 1);
+END
+GO
+
+-- 3. SP: Obter Totais do Dashboard (Usa as UDFs e Lógica Condicional)
+CREATE OR ALTER PROCEDURE sp_ObterDashboardTotais
+    @id_trabalhador INT,
+    @perfil VARCHAR(20)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @TotalPacientes INT;
+    DECLARE @TotalEquipa INT = dbo.udf_ContarEquipaAtiva();
+    DECLARE @ConsultasHoje INT;
+
+    -- 1. LÓGICA DE PACIENTES (CORRIGIDA PARA VÍNCULO)
+    IF @perfil = 'admin'
+    BEGIN
+        -- Admin vê todos os pacientes ativos do sistema
+        SELECT @TotalPacientes = COUNT(*) FROM SGA_PACIENTE WHERE ativo = 1;
+    END
+    ELSE
+    BEGIN
+        -- Médico vê apenas pacientes com VÍNCULO CLÍNICO ativo
+        DECLARE @NifMedico CHAR(9);
+        SELECT @NifMedico = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+
+        SELECT @TotalPacientes = COUNT(DISTINCT v.NIF_paciente)
+        FROM SGA_VINCULO_CLINICO v
+        JOIN SGA_PACIENTE p ON v.NIF_paciente = p.NIF
+        WHERE v.NIF_trabalhador = @NifMedico
+          AND p.ativo = 1; -- Garante que o paciente ainda está ativo
+    END
+
+    -- 2. LÓGICA DE CONSULTAS DE HOJE
+    IF @perfil = 'admin'
+    BEGIN
+        SELECT @ConsultasHoje = COUNT(*) 
+        FROM SGA_ATENDIMENTO 
+        WHERE CAST(data_inicio AS DATE) = CAST(GETDATE() AS DATE)
+          AND estado != 'cancelado';
+    END
+    ELSE
+    BEGIN
+        SELECT @ConsultasHoje = COUNT(*) 
+        FROM SGA_ATENDIMENTO a
+        JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
+        WHERE ta.id_trabalhador = @id_trabalhador
+          AND CAST(a.data_inicio AS DATE) = CAST(GETDATE() AS DATE)
+          AND a.estado != 'cancelado';
+    END
+
+    SELECT 
+        @TotalPacientes AS TotalPacientes, 
+        @TotalEquipa AS TotalEquipa, 
+        @ConsultasHoje AS ConsultasHoje;
+END
+GO
+
+-- 4. SP: Obter Próximas Consultas (Tabela)
+CREATE OR ALTER PROCEDURE sp_ObterProximasConsultas
+    @id_trabalhador INT,
+    @perfil VARCHAR(20)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT TOP 5
+        a.num_atendimento,
+        p.nome AS Paciente,
+        a.data_inicio,
+        a.estado,
+        t_pess.nome AS Medico
+    FROM SGA_ATENDIMENTO a
+    JOIN SGA_PACIENTE_ATENDIMENTO pa ON a.num_atendimento = pa.num_atendimento
+    JOIN SGA_PACIENTE pac ON pa.id_paciente = pac.id_paciente
+    JOIN SGA_PESSOA p ON pac.NIF = p.NIF
+    JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
+    JOIN SGA_TRABALHADOR t ON ta.id_trabalhador = t.id_trabalhador
+    JOIN SGA_PESSOA t_pess ON t.NIF = t_pess.NIF
+    WHERE 
+        a.data_inicio >= CAST(GETDATE() AS DATE)
+        AND a.estado != 'cancelado'
+        -- Filtro de Segurança: Se não for admin, só vê as suas
+        AND (@perfil = 'admin' OR ta.id_trabalhador = @id_trabalhador)
+    ORDER BY a.data_inicio ASC;
+END
+GO
