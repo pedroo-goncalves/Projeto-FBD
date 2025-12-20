@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from persistence.session import get_db_connection 
 from persistence.pacientes import contar_pacientes, criar_paciente_via_agenda
 from persistence.pedidos import contar_pedidos_pendentes
-from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres, listar_eventos_calendario
+from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres, listar_eventos_calendario, obter_detalhes_atendimento, editar_agendamento, cancelar_agendamento
 from persistence.salas import contar_salas_livres
 from persistence.trabalhadores import medicos_agenda_dropdown, obter_dados_login
 
@@ -442,12 +442,14 @@ def api_eventos():
     for row in rows:
         # row[1] é Paciente, row[5] é Médico
         titulo = row[1]
+        first_name = row[5].split()[0]
         
         # Se for Admin, mostra o nome do médico antes
         if session.get('perfil') == 'admin':
-            titulo = f"[{row[5].split()[0]}] {row[1]}" # Ex: [Dr.João] Ana Silva
+            titulo = f"[{first_name[0]}. {row[5].split()[1]}] {row[1]}" # Ex: [Dr.João] Ana Silva
 
         eventos.append({
+            'id': row[0],
             'title': titulo,
             'start': row[2].isoformat(),
             'end': row[3].isoformat(),
@@ -485,17 +487,79 @@ def criar_paciente_rapido():
 def api_horarios():
     id_medico = request.args.get('medico')
     data = request.args.get('data')
+    is_online_raw = request.args.get('is_online')
+    is_online = 1 if is_online_raw == '1' else 0
+    duracao = request.args.get('duracao', 60, type=int)
+    
+    # Novo parâmetro (pode ser None ou vazio)
+    ignorar_id = request.args.get('ignorar_id', type=int)
+
     if not id_medico or not data: return jsonify([])
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        slots = obter_horarios_livres(cursor, id_medico, data)
-    except Exception:
+        # Passa o ignorar_id para a persistência
+        slots = obter_horarios_livres(cursor, id_medico, data, is_online, duracao, ignorar_id)
+    except Exception as e:
+        print(f"Erro api horarios: {e}")
         slots = []
     finally:
         conn.close()
     return jsonify(slots)
+
+@app.route('/api/atendimento/<int:id_atendimento>')
+@login_required
+def api_detalhes_atendimento(id_atendimento):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    detalhes = obter_detalhes_atendimento(cursor, id_atendimento)
+    conn.close()
+    
+    if detalhes:
+        # Converter datas para string ISO para o JS ler
+        detalhes['inicio_iso'] = detalhes['inicio'].strftime('%Y-%m-%dT%H:%M')
+        detalhes['data_iso'] = detalhes['inicio'].strftime('%Y-%m-%d')
+        detalhes['hora_iso'] = detalhes['inicio'].strftime('%H:%M')
+        return jsonify(detalhes)
+    return jsonify({'erro': 'Não encontrado'}), 404
+
+@app.route('/editar_agendamento', methods=['POST'])
+@login_required
+def rota_editar_agendamento():
+    id_atendimento = request.form.get('id_atendimento')
+    data_str = request.form.get('data')
+    hora_str = request.form.get('hora')
+    duracao = int(request.form.get('duracao'))
+    
+    try:
+        data_completa = f"{data_str} {hora_str}:00"
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        editar_agendamento(cursor, id_atendimento, data_completa, duracao)
+        conn.commit()
+        conn.close()
+        flash('Agendamento atualizado com sucesso!', 'success')
+    except Exception as e:
+        flash(f'Erro ao atualizar: {e}', 'danger')
+        
+    return redirect(url_for('agenda'))
+
+@app.route('/cancelar_agendamento/<int:id_atendimento>')
+@login_required
+def rota_cancelar_agendamento(id_atendimento):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cancelar_agendamento(cursor, id_atendimento)
+        conn.commit()
+        conn.close()
+        flash('Consulta cancelada.', 'success')
+    except Exception as e:
+        flash(f'Erro ao cancelar: {e}', 'danger')
+        
+    return redirect(url_for('agenda'))
 
 if __name__ == '__main__':
     app.run(debug=True)

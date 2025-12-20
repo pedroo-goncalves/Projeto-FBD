@@ -1,18 +1,34 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     // =========================================================
-    // 1. REFERÊNCIAS
+    // 1. REFERÊNCIAS GERAIS
     // =========================================================
     const calendarEl = document.getElementById('calendar');
 
-    // Modal e Inputs
-    const modalEl = document.getElementById('modalAgendamento');
+    // --- Modal de CRIAÇÃO ---
+    const modalAgendamentoEl = document.getElementById('modalAgendamento');
     const inputData = document.getElementById('inputData');
     const selectHora = document.getElementById('selectHora');
     const selectMedico = document.getElementById('selectMedico');
     const checkOnline = document.getElementById('checkOnline');
+    const selectDuracaoCriar = document.querySelector('#modalAgendamento select[name="duracao"]');
 
-    // Paciente Rápido
+    // --- Modal de EDIÇÃO ---
+    const modalDetalhesEl = document.getElementById('modalDetalhes');
+    const detalheId = document.getElementById('detalheId');
+    const detalheData = document.getElementById('detalheData');
+    const detalheHora = document.getElementById('detalheHora');
+    const detalheDuracao = document.getElementById('detalheDuracao');
+    const detalheIdMedico = document.getElementById('detalheIdMedico');
+    const badge = document.getElementById('badgeEstado');
+    const inpPaciente = document.getElementById('detalhePaciente');
+    const inpMedico = document.getElementById('detalheMedico'); // Pode ser NULL se não for admin
+    const btnCancel = document.getElementById('btnCancelarConsulta');
+
+    // Variável de memória
+    let horaOriginalEdicao = null;
+
+    // --- Paciente Rápido ---
     const btnNovo = document.getElementById('btnNovoPaciente');
     const formRapido = document.getElementById('formRapidoPaciente');
     const btnCancelar = document.getElementById('btnCancelarRapido');
@@ -20,8 +36,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const selectPaciente = document.getElementById('selectPaciente');
     const msgErro = document.getElementById('msgErroRapido');
 
+
     // =========================================================
-    // 2. CONFIGURAÇÃO DO CALENDÁRIO
+    // 2. CONFIG CALENDÁRIO
     // =========================================================
     if (calendarEl) {
         const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -35,14 +52,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 sessionStorage.setItem('calendarDate', info.view.currentStart.toISOString());
             },
 
-            // --- VISUAL LIMPO (09:00 - 18:00) ---
-            slotMinTime: '09:00:00', // Esconde tudo antes das 09h
-            slotMaxTime: '18:00:00', // Esconde tudo depois das 18h
-
-            slotDuration: '01:00:00',   // Linhas de 1 hora
-            slotLabelInterval: '01:00', // Etiquetas de hora a hora
-            allDaySlot: false,          // Remove linha "Dia Todo"
-            expandRows: true,           // Estica para ocupar o ecrã
+            slotMinTime: '09:00:00',
+            slotMaxTime: '18:00:00',
+            slotDuration: '01:00:00',
+            slotLabelInterval: '01:00',
+            allDaySlot: false,
+            expandRows: true,
 
             headerToolbar: {
                 left: 'prev,next today',
@@ -50,75 +65,46 @@ document.addEventListener('DOMContentLoaded', function () {
                 right: 'dayGridMonth,timeGridWeek'
             },
 
-            // --- TRUQUE DO ALMOÇO CINZENTO ---
-            // Definimos dois blocos de trabalho. O "buraco" (13h-14h) fica cinzento.
             businessHours: [
-                {
-                    // Manhã (09:00 - 13:00)
-                    daysOfWeek: [1, 2, 3, 4, 5],
-                    startTime: '09:00',
-                    endTime: '13:00'
-                },
-                {
-                    // Tarde (14:00 - 18:00)
-                    daysOfWeek: [1, 2, 3, 4, 5],
-                    startTime: '14:00',
-                    endTime: '18:00'
-                }
+                { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '13:00' },
+                { daysOfWeek: [1, 2, 3, 4, 5], startTime: '14:00', endTime: '18:00' }
             ],
 
-            // Fonte de dados
             events: '/api/eventos',
-
-            // Interações
             navLinks: true,
             selectable: true,
 
-            // --- CLICK ---
             dateClick: function (info) {
-                if (!validarHorarioClique(info.date, info.view.type)) {
-                    return; // Bloqueia clique no almoço ou fim de semana
-                }
-                abrirModalSmart(info.dateStr);
+                if (!validarHorarioClique(info.date, info.view.type)) return;
+                abrirModalCriar(info.dateStr);
             },
 
             eventClick: function (info) {
-                // Opcional
+                info.jsEvent.preventDefault();
+                const idAtendimento = info.event.extendedProps.num_atendimento || info.event.id;
+                abrirModalDetalhes(idAtendimento);
             }
         });
-
         calendar.render();
     }
 
-    // =========================================================
-    // VALIDAÇÃO DE HORÁRIO (AGORA BLOQUEIA AS 13H TAMBÉM)
-    // =========================================================
     function validarHorarioClique(dateObj, viewType) {
-        const diaSemana = dateObj.getDay(); // 0=Domingo, 6=Sábado
-
-        // 1. Bloquear Fins de Semana
+        const diaSemana = dateObj.getDay();
         if (diaSemana === 0 || diaSemana === 6) return false;
-
-        // 2. Se for MÊS, deixa passar (ignora horas)
         if (viewType === 'dayGridMonth') return true;
 
-        // 3. Se for SEMANA, valida horas
         const hora = dateObj.getHours();
-
-        // Bloqueia almoço (13h)
         if (hora === 13) return false;
-
-        // O slotMinTime já esconde o resto visualmente, mas por segurança:
         if (hora < 9 || hora >= 18) return false;
-
         return true;
     }
 
+
     // =========================================================
-    // 3. ABRIR MODAL
+    // 3. MODAL CRIAÇÃO
     // =========================================================
-    function abrirModalSmart(dataString) {
-        if (!inputData || !modalEl) return;
+    function abrirModalCriar(dataString) {
+        if (!inputData || !modalAgendamentoEl) return;
 
         let dataFinal = dataString;
         let horaFinal = null;
@@ -130,45 +116,44 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         inputData.value = dataFinal;
-        inputData.dispatchEvent(new Event('input'));
+        if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
 
-        const modal = new bootstrap.Modal(modalEl);
+        carregarHorariosCriacao().then(() => {
+            if (horaFinal && selectHora) {
+                setTimeout(() => {
+                    let existe = Array.from(selectHora.options).some(opt => opt.value === horaFinal);
+                    if (existe) {
+                        selectHora.value = horaFinal;
+                        selectHora.classList.add('is-valid');
+                        setTimeout(() => selectHora.classList.remove('is-valid'), 1000);
+                    }
+                }, 100);
+            }
+        });
+
+        const modal = new bootstrap.Modal(modalAgendamentoEl);
         modal.show();
-
-        if (horaFinal && selectHora) {
-            selectHora.innerHTML = '<option>A carregar...</option>';
-            setTimeout(() => {
-                let existe = Array.from(selectHora.options).some(opt => opt.value === horaFinal);
-                if (existe) {
-                    selectHora.value = horaFinal;
-                    selectHora.classList.add('is-valid');
-                    setTimeout(() => selectHora.classList.remove('is-valid'), 1000);
-                }
-            }, 600);
-        }
     }
 
-    // =========================================================
-    // 4. CARREGAR HORÁRIOS (API)
-    // =========================================================
-    async function carregarHorarios() {
+    async function carregarHorariosCriacao() {
         const medicoId = selectMedico ? selectMedico.value : null;
         const dataVal = inputData ? inputData.value : null;
         const isOnline = checkOnline && checkOnline.checked ? 1 : 0;
+        const duracao = selectDuracaoCriar ? selectDuracaoCriar.value : 60;
 
         if (medicoId && dataVal) {
             selectHora.innerHTML = '<option>A verificar...</option>';
             selectHora.disabled = true;
 
             try {
-                const url = `/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&is_online=${isOnline}`;
+                const url = `/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&is_online=${isOnline}&duracao=${duracao}`;
                 const response = await fetch(url);
                 const horarios = await response.json();
 
-                selectHora.innerHTML = '<option value="" selected disabled>Escolha um horário</option>';
+                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
 
                 if (horarios.length === 0) {
-                    selectHora.innerHTML += '<option disabled>Indisponível</option>';
+                    selectHora.innerHTML += '<option disabled>Sem vagas</option>';
                 } else {
                     horarios.forEach(hora => {
                         const option = document.createElement('option');
@@ -185,9 +170,113 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    if (selectMedico) selectMedico.addEventListener('change', carregarHorarios);
-    if (inputData) inputData.addEventListener('input', carregarHorarios);
-    if (checkOnline) checkOnline.addEventListener('change', carregarHorarios);
+    if (selectMedico) selectMedico.addEventListener('change', carregarHorariosCriacao);
+    if (inputData) inputData.addEventListener('input', carregarHorariosCriacao);
+    if (checkOnline) checkOnline.addEventListener('change', carregarHorariosCriacao);
+    if (selectDuracaoCriar) selectDuracaoCriar.addEventListener('change', carregarHorariosCriacao);
+
+
+    // =========================================================
+    // 4. MODAL EDIÇÃO
+    // =========================================================
+    async function abrirModalDetalhes(id) {
+        if (!modalDetalhesEl) return;
+
+        try {
+            const response = await fetch(`/api/atendimento/${id}`);
+            const dados = await response.json();
+
+            if (response.ok) {
+                detalheId.value = dados.id;
+                inpPaciente.value = dados.paciente;
+
+                // PROTEÇÃO: Só preenche o médico se o campo existir (se for admin)
+                if (inpMedico) {
+                    inpMedico.value = dados.medico;
+                }
+
+                detalheIdMedico.value = dados.id_medico; // Este existe sempre (hidden)
+                detalheData.value = dados.data_iso;
+                detalheDuracao.value = dados.duracao || 60;
+
+                // MEMORIZAR HORA
+                horaOriginalEdicao = dados.hora_iso;
+
+                if (badge) {
+                    badge.textContent = dados.estado.toUpperCase();
+                    badge.className = dados.estado === 'finalizado' ? 'badge bg-success shadow-sm' : 'badge bg-white text-dark bg-opacity-75 shadow-sm badge-estado';
+                }
+
+                carregarSlotsEdicao(dados.id_medico, dados.data_iso, dados.hora_iso, dados.duracao, dados.id);
+
+                btnCancel.href = `/cancelar_agendamento/${dados.id}`;
+
+                const modal = new bootstrap.Modal(modalDetalhesEl);
+                modal.show();
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    async function carregarSlotsEdicao(medicoId, dataVal, horaAtualPreservar, duracaoVal, ignorarId) {
+        if (!detalheHora) return;
+        detalheHora.innerHTML = '<option disabled>A carregar...</option>';
+
+        try {
+            let url = `/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&duracao=${duracaoVal}`;
+            if (ignorarId) {
+                url += `&ignorar_id=${ignorarId}`;
+            }
+
+            const response = await fetch(url);
+            const horarios = await response.json();
+
+            detalheHora.innerHTML = '';
+
+            let mantivemosOriginal = false;
+
+            horarios.forEach(hora => {
+                const option = document.createElement('option');
+                option.value = hora;
+                option.textContent = hora;
+
+                if (hora === horaAtualPreservar) {
+                    option.textContent = `${hora} (Atual)`;
+                    option.selected = true;
+                    mantivemosOriginal = true;
+                }
+
+                detalheHora.appendChild(option);
+            });
+
+            if (detalheHora.options.length === 0) {
+                detalheHora.innerHTML = '<option disabled>Sem vagas para esta duração</option>';
+            }
+
+        } catch (error) {
+            detalheHora.innerHTML = '<option disabled>Erro</option>';
+        }
+    }
+
+    // Listeners Edição
+    if (detalheData) {
+        detalheData.addEventListener('change', function () {
+            carregarSlotsEdicao(detalheIdMedico.value, this.value, null, detalheDuracao.value, detalheId.value);
+        });
+    }
+
+    if (detalheDuracao) {
+        detalheDuracao.addEventListener('change', function () {
+            // Usa a horaOriginalEdicao para tentar manter a seleção
+            carregarSlotsEdicao(
+                detalheIdMedico.value,
+                detalheData.value,
+                horaOriginalEdicao,
+                this.value,
+                detalheId.value
+            );
+        });
+    }
+
 
     // =========================================================
     // 5. PACIENTE RÁPIDO
@@ -202,7 +291,10 @@ document.addEventListener('DOMContentLoaded', function () {
             formRapido.classList.add('d-none');
             btnNovo.disabled = false;
             msgErro.textContent = '';
-            limparCamposRapido();
+            document.getElementById('newNif').value = '';
+            document.getElementById('newNome').value = '';
+            document.getElementById('newTel').value = '';
+            document.getElementById('newData').value = '';
         });
 
         btnSalvar.addEventListener('click', async () => {
@@ -227,7 +319,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(dados)
                 });
-
                 const result = await response.json();
 
                 if (response.ok) {
@@ -236,11 +327,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     novaOpcao.textContent = `${result.nome} (${result.nif})`;
                     novaOpcao.selected = true;
                     selectPaciente.appendChild(novaOpcao);
-
                     formRapido.classList.add('d-none');
                     btnNovo.disabled = false;
-                    limparCamposRapido();
-
+                    document.getElementById('newNif').value = '';
+                    document.getElementById('newNome').value = '';
+                    document.getElementById('newTel').value = '';
+                    document.getElementById('newData').value = '';
                 } else {
                     msgErro.textContent = result.erro || 'Erro ao guardar.';
                 }
@@ -251,12 +343,30 @@ document.addEventListener('DOMContentLoaded', function () {
                 btnSalvar.disabled = false;
             }
         });
+    }
 
-        function limparCamposRapido() {
-            document.getElementById('newNif').value = '';
-            document.getElementById('newNome').value = '';
-            document.getElementById('newTel').value = '';
-            document.getElementById('newData').value = '';
-        }
+    // =========================================================
+    // 6. LIMPAR MODAL AO CLICAR NO BOTÃO "NOVO AGENDAMENTO"
+    // =========================================================
+    const btnGlobal = document.getElementById('btnNovoAgendamentoGlobal');
+
+    if (btnGlobal) {
+        btnGlobal.addEventListener('click', function () {
+            // 1. Limpar Data
+            if (inputData) inputData.value = '';
+
+            // 2. Resetar Duração
+            if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
+
+            // 3. Resetar Horas (Voltar ao estado "--:--")
+            if (selectHora) {
+                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
+                selectHora.disabled = true;
+                selectHora.classList.remove('is-valid'); // Remove o verde se tiver ficado
+            }
+
+            // 4. (Opcional) Se quiseres resetar o switch Online também
+            if (checkOnline) checkOnline.checked = false;
+        });
     }
 });

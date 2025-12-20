@@ -15,11 +15,11 @@ def contar_atendimentos_hoje(cursor):
         print(f"Erro a contar consultas: {e}")
         return {'total': 0, 'online': 0, 'presencial': 0}
 
-def obter_horarios_livres(cursor, id_medico, data):
+def obter_horarios_livres(cursor, id_medico, data, is_online=0, duracao=60, ignorar_id=None):
     try:
-        cursor.execute("EXEC sp_ObterHorariosLivres ?, ?", (id_medico, data))
+        cursor.execute("EXEC sp_ObterHorariosLivres ?, ?, ?, ?, ?", 
+                       (id_medico, data, is_online, duracao, ignorar_id))
         rows = cursor.fetchall()
-        # Converte a lista de tuplos [('09:00',), ('10:00',)] numa lista simples
         return [row[0] for row in rows]
     except Exception as e:
         print(f"Erro slots: {e}")
@@ -53,3 +53,34 @@ def listar_eventos_calendario(cursor, user_id, perfil):
         cursor.execute(query)
             
     return cursor.fetchall()
+
+
+def obter_detalhes_atendimento(cursor, id_atendimento):
+    try:
+        cursor.execute("EXEC sp_obterDetalhesAtendimento ?", (id_atendimento,))
+        row = cursor.fetchone()
+        if row:
+            # Calcula duração em minutos para preencher o form
+            duracao = int((row[6] - row[5]).total_seconds() / 60)
+            return {
+                'id': row[0],
+                'paciente': row[1],
+                'nif_paciente': row[2],
+                'medico': row[3],
+                'id_medico': row[4],
+                'inicio': row[5],
+                'fim': row[6],
+                'estado': row[7],
+                'duracao': duracao
+            }
+        return None
+    except Exception as e:
+        print(f"Erro detalhes: {e}")
+        return None
+
+def editar_agendamento(cursor, id_atendimento, nova_data_str, duracao):
+    # nova_data_str vem como 'YYYY-MM-DD HH:MM'
+    cursor.execute("EXEC sp_editarAgendamento ?, ?, ?", (id_atendimento, nova_data_str, duracao))
+
+def cancelar_agendamento(cursor, id_atendimento):
+    cursor.execute("EXEC sp_cancelarAgendamento ?", (id_atendimento,))

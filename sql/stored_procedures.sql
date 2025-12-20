@@ -306,38 +306,56 @@ GO
 CREATE OR ALTER PROCEDURE sp_ObterHorariosLivres
     @id_medico INT,
     @data_consulta DATE,
-    @is_online BIT = 0 
+    @is_online BIT = 0,
+    @duracao INT = 60,
+    @id_atendimento_ignorar INT = NULL -- Novo parâmetro para Edição
 AS
 BEGIN
     SET NOCOUNT ON;
-    
-    -- 1. Definição do Horário de Funcionamento (9h às 18h)
+
+    -- 1. Gerar Slots (09:00 às 17:00 - última hora possível para slot de 1h)
     DECLARE @HoraInicio TIME = '09:00';
     DECLARE @HoraFim TIME = '18:00';
-    DECLARE @DuracaoMinutos INT = 60; 
-
+    
     CREATE TABLE #Slots (Hora TIME);
 
-    -- 2. Gerar Slots (excluindo 13:00 para almoço)
     DECLARE @HoraAtual TIME = @HoraInicio;
     WHILE @HoraAtual < @HoraFim
     BEGIN
         IF @HoraAtual != '13:00' INSERT INTO #Slots VALUES (@HoraAtual);
-        SET @HoraAtual = DATEADD(MINUTE, @DuracaoMinutos, @HoraAtual);
+        SET @HoraAtual = DATEADD(MINUTE, 60, @HoraAtual);
     END
 
-    -- 3. Retornar Slots onde o MÉDICO NÃO ESTÁ OCUPADO
-    -- Removemos a verificação complexa das salas. Se o médico está livre, a vaga existe.
+    -- 2. Filtrar Slots Válidos
     SELECT LEFT(CAST(s.Hora AS VARCHAR), 5) AS Hora
     FROM #Slots s
-    WHERE NOT EXISTS (
-        SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
-        JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
-        WHERE ta.id_trabalhador = @id_medico
-          AND CAST(a.data_inicio AS DATE) = @data_consulta
-          AND CAST(a.data_inicio AS TIME) = s.Hora
-          AND a.estado != 'cancelado'
-    );
+    WHERE 
+        -- A. VALIDAÇÃO DE TURNOS (Resolve o bug das 12h e 17h com 2h de duração)
+        -- O agendamento tem de caber TOTALMENTE na manhã OU na tarde.
+        (
+            (s.Hora >= '09:00' AND DATEADD(MINUTE, @duracao, s.Hora) <= '13:00') -- Cabe na Manhã?
+            OR
+            (s.Hora >= '14:00' AND DATEADD(MINUTE, @duracao, s.Hora) <= '18:00') -- Cabe na Tarde?
+        )
+        AND
+        -- B. VALIDAÇÃO DE COLISÕES (Com médico)
+        NOT EXISTS (
+            SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
+            JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
+            WHERE ta.id_trabalhador = @id_medico
+              AND a.estado != 'cancelado'
+              -- O TRUQUE: Ignorar o atendimento que estamos a tentar editar!
+              AND (@id_atendimento_ignorar IS NULL OR a.num_atendimento != @id_atendimento_ignorar)
+              AND (
+                  CAST(a.data_inicio AS DATE) = @data_consulta
+                  AND 
+                  (
+                      CAST(a.data_inicio AS TIME) < DATEADD(MINUTE, @duracao, s.Hora)
+                      AND 
+                      CAST(a.data_fim AS TIME) > s.Hora
+                  )
+              )
+        );
 
     DROP TABLE #Slots;
 END
@@ -405,7 +423,7 @@ CREATE OR ALTER PROCEDURE sp_criarAgendamento
     @nif_paciente CHAR(9),
     @id_medico INT,
     @data_inicio DATETIME2,
-    @preferencia_online BIT -- 1=Online, 0=Presencial
+    @preferencia_online BIT,
     @duracao INT = 60
 AS
 BEGIN
@@ -881,5 +899,82 @@ BEGIN
         -- Relança o erro para o Python saber que falhou
         THROW;
     END CATCH
+END
+GO
+
+
+
+
+
+
+
+
+-- 1. Obter Detalhes de um Agendamento
+CREATE OR ALTER PROCEDURE sp_obterDetalhesAtendimento
+    @id_atendimento INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT 
+        A.num_atendimento,
+        PessPac.nome AS NomePaciente,
+        PessPac.NIF AS NifPaciente,
+        PessMed.nome AS NomeMedico,
+        T.id_trabalhador AS IdMedico,
+        A.data_inicio,
+        A.data_fim,
+        A.estado
+    FROM SGA_ATENDIMENTO A
+    JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
+    JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
+    JOIN SGA_PESSOA PessPac ON Pac.NIF = PessPac.NIF
+    JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
+    JOIN SGA_TRABALHADOR T ON TA.id_trabalhador = T.id_trabalhador
+    JOIN SGA_PESSOA PessMed ON T.NIF = PessMed.NIF
+    WHERE A.num_atendimento = @id_atendimento;
+END
+GO
+
+-- 2. Editar Agendamento (Data/Hora)
+CREATE OR ALTER PROCEDURE sp_editarAgendamento
+    @id_atendimento INT,
+    @nova_data DATETIME2,
+    @nova_duracao INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @novo_fim DATETIME2 = DATEADD(MINUTE, @nova_duracao, @nova_data);
+    
+    -- Descobrir quem é o médico deste atendimento
+    DECLARE @id_medico INT;
+    SELECT @id_medico = id_trabalhador FROM SGA_TRABALHADOR_ATENDIMENTO WHERE num_atendimento = @id_atendimento;
+
+    -- Validar colisão de horário (excluindo o próprio agendamento!)
+    IF EXISTS (
+        SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
+        JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
+        WHERE ta.id_trabalhador = @id_medico 
+          AND a.num_atendimento != @id_atendimento -- Importante: não chocar consigo mesmo
+          AND a.estado != 'cancelado'
+          AND (@nova_data < a.data_fim AND @novo_fim > a.data_inicio)
+    )
+    THROW 50012, 'O médico já tem consulta marcada nesse horário.', 1;
+
+    -- Atualizar
+    UPDATE SGA_ATENDIMENTO 
+    SET data_inicio = @nova_data, 
+        data_fim = @novo_fim 
+    WHERE num_atendimento = @id_atendimento;
+END
+GO
+
+-- 3. Cancelar Agendamento
+CREATE OR ALTER PROCEDURE sp_cancelarAgendamento
+    @id_atendimento INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE SGA_ATENDIMENTO SET estado = 'cancelado' WHERE num_atendimento = @id_atendimento;
 END
 GO
