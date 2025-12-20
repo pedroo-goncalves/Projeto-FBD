@@ -110,15 +110,49 @@
 
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Paciente</label>
-                            <input class="form-control" list="datalistPacientes" name="nif_paciente" id="inputPaciente"
-                                placeholder="Escreva NIF ou Nome..." required autocomplete="off">
 
-                            <datalist id="datalistPacientes">
-                                {% for p in pacientes %}
-                                <option value="{{ p.nif }}">{{ p.nome }}</option>
-                                {% endfor %}
-                            </datalist>
-                            <div class="form-text small">Digite o NIF ou selecione da lista.</div>
+                            <div class="input-group">
+                                <select name="nif_paciente" id="selectPaciente" class="form-select" required>
+                                    <option value="" selected disabled>Selecione o paciente...</option>
+                                    {% for p in pacientes %}
+                                    <option value="{{ p.nif }}">{{ p.nome }} ({{ p.nif }})</option>
+                                    {% endfor %}
+                                </select>
+
+                                <button type="button" class="btn btn-outline-success" id="btnNovoPaciente"
+                                    title="Novo Paciente">
+                                    <i class="fa-solid fa-user-plus"></i>
+                                </button>
+                            </div>
+
+                            <div id="formRapidoPaciente" class="card card-body bg-light mt-2 d-none border-success">
+                                <h6 class="fw-bold text-success mb-2">Novo Paciente</h6>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input type="text" id="newNif" class="form-control form-control-sm"
+                                            placeholder="NIF (9 dígitos)" maxlength="9">
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="text" id="newTel" class="form-control form-control-sm"
+                                            placeholder="Telemóvel">
+                                    </div>
+                                    <div class="col-12">
+                                        <input type="text" id="newNome" class="form-control form-control-sm"
+                                            placeholder="Nome Completo">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="small text-muted">Data Nascimento</label>
+                                        <input type="date" id="newData" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-12 text-end mt-2">
+                                        <button type="button" class="btn btn-sm btn-secondary me-1"
+                                            id="btnCancelarRapido">Cancelar</button>
+                                        <button type="button" class="btn btn-sm btn-success"
+                                            id="btnSalvarRapido">Guardar & Selecionar</button>
+                                    </div>
+                                </div>
+                                <div id="msgErroRapido" class="text-danger small mt-2 fw-bold"></div>
+                            </div>
                         </div>
 
                         <div class="mb-3">

@@ -1,4 +1,8 @@
 document.addEventListener('DOMContentLoaded', function () {
+
+    // =========================================================
+    // PARTE 1: LÓGICA DE CARREGAR HORÁRIOS
+    // =========================================================
     const medicoInput = document.getElementById('selectMedico'); // Pode ser Select ou Hidden
     const dataInput = document.getElementById('inputData');
     const horaSelect = document.getElementById('selectHora');
@@ -9,9 +13,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     async function carregarHorarios() {
-        // Se for hidden input (colaborador), value já lá está. Se for select, pega o selecionado.
-        const medicoId = medicoInput.value;
-        const dataVal = dataInput.value;
+        const medicoId = medicoInput ? medicoInput.value : null;
+        const dataVal = dataInput ? dataInput.value : null;
 
         // Só faz pedido se ambos estiverem preenchidos
         if (medicoId && dataVal) {
@@ -19,6 +22,7 @@ document.addEventListener('DOMContentLoaded', function () {
             horaSelect.disabled = true;
 
             try {
+                // Faz o pedido à API
                 const response = await fetch(`/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}`);
                 const horarios = await response.json();
 
@@ -36,24 +40,121 @@ document.addEventListener('DOMContentLoaded', function () {
                     horaSelect.disabled = false;
                 }
             } catch (error) {
-                console.error('Erro:', error);
-                horaSelect.innerHTML = '<option>Erro ao carregar</option>';
+                console.error('Erro ao carregar horários:', error);
+                horaSelect.innerHTML = '<option>Erro de ligação</option>';
             }
         }
     }
 
-    // Adicionar Listeners
+    // ADICIONAR OS LISTENERS (Eventos)
     if (medicoInput && dataInput) {
-        // Se for um SELECT (Admin), ouve mudanças. Se for Hidden (Médico), não precisa de listener (valor fixo)
+        // Se for Select (Admin), atualiza ao mudar. Se for Hidden (Médico), não faz nada.
         if (medicoInput.tagName === 'SELECT') {
             medicoInput.addEventListener('change', carregarHorarios);
         }
 
-        dataInput.addEventListener('change', carregarHorarios);
+        // 'input' dispara logo que a data muda (melhor que 'change')
+        dataInput.addEventListener('input', carregarHorarios);
+        dataInput.addEventListener('change', carregarHorarios); // Redundância segura
 
-        // Se o médico já estiver preenchido (Colaborador) e o user escolher a data, dispara logo
+        // Se já tiver dados preenchidos ao abrir (ex: refresh), carrega logo
         if (medicoInput.value && dataInput.value) {
             carregarHorarios();
+        }
+    }
+
+
+    // =========================================================
+    // PARTE 2: LÓGICA DE NOVO PACIENTE RÁPIDO
+    // =========================================================
+    const btnNovo = document.getElementById('btnNovoPaciente');
+    const formRapido = document.getElementById('formRapidoPaciente');
+    const btnCancelar = document.getElementById('btnCancelarRapido');
+    const btnSalvar = document.getElementById('btnSalvarRapido');
+    const selectPaciente = document.getElementById('selectPaciente');
+    const msgErro = document.getElementById('msgErroRapido');
+
+    // Só ativa esta parte se os elementos existirem na página
+    if (btnNovo && formRapido) {
+
+        // 1. Mostrar Form
+        btnNovo.addEventListener('click', () => {
+            formRapido.classList.remove('d-none');
+            btnNovo.disabled = true;
+        });
+
+        // 2. Esconder Form
+        btnCancelar.addEventListener('click', () => {
+            formRapido.classList.add('d-none');
+            btnNovo.disabled = false;
+            msgErro.textContent = '';
+            limparCampos();
+        });
+
+        // 3. Enviar Dados (AJAX)
+        btnSalvar.addEventListener('click', async () => {
+            const dados = {
+                nif: document.getElementById('newNif').value,
+                nome: document.getElementById('newNome').value,
+                telemovel: document.getElementById('newTel').value,
+                data_nasc: document.getElementById('newData').value
+            };
+
+            if (!dados.nif || !dados.nome || !dados.telemovel || !dados.data_nasc) {
+                msgErro.textContent = 'Preencha todos os campos.';
+                return;
+            }
+
+            try {
+                btnSalvar.textContent = 'A guardar...';
+                btnSalvar.disabled = true;
+
+                const response = await fetch('/api/criar_paciente_rapido', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dados)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // SUCESSO!
+                    // Cria a nova opção no Select e seleciona-a
+                    // Usamos o NIF como value porque é isso que o backend espera no form de agendamento
+                    const novaOpcao = document.createElement('option');
+                    novaOpcao.value = result.nif;
+                    novaOpcao.textContent = `${result.nome} (${result.nif})`;
+                    novaOpcao.selected = true;
+
+                    selectPaciente.appendChild(novaOpcao);
+
+                    // Reset à interface
+                    formRapido.classList.add('d-none');
+                    btnNovo.disabled = false;
+                    limparCampos();
+
+                    // Pequeno feedback visual no select
+                    selectPaciente.classList.add('is-valid');
+                    setTimeout(() => selectPaciente.classList.remove('is-valid'), 2000);
+
+                } else {
+                    msgErro.textContent = result.erro || 'Erro ao guardar.';
+                }
+
+            } catch (error) {
+                console.error(error);
+                msgErro.textContent = 'Erro de ligação ao servidor.';
+            } finally {
+                btnSalvar.textContent = 'Guardar & Selecionar';
+                btnSalvar.disabled = false;
+            }
+        });
+
+        function limparCampos() {
+            document.getElementById('newNif').value = '';
+            document.getElementById('newNome').value = '';
+            document.getElementById('newTel').value = '';
+            document.getElementById('newData').value = '';
         }
     }
 });

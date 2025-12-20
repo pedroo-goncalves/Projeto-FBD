@@ -54,30 +54,59 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- VERIFICAÇÕES ORIGINAIS DO BERNARDO
+
+    -- Verifica Pessoa
     IF NOT EXISTS (SELECT 1 FROM SGA_PESSOA WHERE NIF = @NIF)
         THROW 50002, 'Pessoa nao encontrada.', 1;
 
-    IF EXISTS (SELECT 1 FROM SGA_PACIENTE WHERE NIF = @NIF)
-        THROW 50003, 'Paciente ja existe.', 1;
+    -- Verifica se Paciente já existe (para devolver o ID em vez de erro)
+    DECLARE @id_existente INT;
+    SELECT @id_existente = id_paciente FROM SGA_PACIENTE WHERE NIF = @NIF;
 
     BEGIN TRY
         BEGIN TRANSACTION;
-            INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes)
-            VALUES (@NIF, @data_inscricao, @observacoes);
+            
+            IF @id_existente IS NULL
+            BEGIN
+                INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
+                VALUES (@NIF, @data_inscricao, @observacoes, 1);
+                SET @id_paciente = SCOPE_IDENTITY();
+            END
+            ELSE
+            BEGIN
+                UPDATE SGA_PACIENTE SET ativo = 1 WHERE id_paciente = @id_existente;
+                SET @id_paciente = @id_existente;
+            END
 
-            SET @id_paciente = SCOPE_IDENTITY();
-
+            -- LÓGICA CORRIGIDA: Inserir Vínculo usando NIFs
             IF @id_medico_responsavel IS NOT NULL
-                INSERT INTO SGA_VINCULO_CLINICO (id_trabalhador, id_paciente)
-                VALUES (@id_medico_responsavel, @id_paciente);
+            BEGIN
+                -- 1. Descobrir NIF do Médico
+                DECLARE @NifMedico CHAR(9);
+                SELECT @NifMedico = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_medico_responsavel;
+
+                -- 2. Inserir se não existir
+                IF @NifMedico IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM SGA_VINCULO_CLINICO 
+                    WHERE NIF_trabalhador = @NifMedico AND NIF_paciente = @NIF
+                )
+                BEGIN
+                    -- Nota: Removemos 'id_trabalhador' e 'id_paciente' e usamos os NIFs
+                    INSERT INTO SGA_VINCULO_CLINICO (NIF_trabalhador, NIF_paciente, tipo_vinculo, data_inicio)
+                    VALUES (@NifMedico, @NIF, 'Responsável', GETDATE());
+                END
+            END
+
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW;
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
     END CATCH
 END
 GO
+
+
 
 CREATE OR ALTER PROCEDURE sp_atualizarObservacoesPaciente
     @id INT,
@@ -135,7 +164,6 @@ GO
 CREATE OR ALTER PROCEDURE sp_listarMeusPacientes
     @id_medico INT
 AS
-
 /*
 -- =============================================
 -- Author:      Pedro Gonçalves
@@ -154,11 +182,15 @@ BEGIN
         Pac.data_inscricao
     FROM SGA_PACIENTE Pac 
     JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
-    JOIN SGA_VINCULO_CLINICO V ON Pac.id_paciente = V.id_paciente
-    WHERE V.id_trabalhador = @id_medico 
+    -- Join agora é via NIF_paciente
+    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
+    -- Join para filtrar pelo ID do médico, mas ligando pelo NIF
+    JOIN SGA_TRABALHADOR T ON V.NIF_trabalhador = T.NIF
+    WHERE T.id_trabalhador = @id_medico 
     ORDER BY Pac.data_inscricao DESC; 
 END
 GO
+
 
 CREATE OR ALTER PROCEDURE sp_listarRelatoriosVinculados
     @id_trabalhador INT
@@ -185,8 +217,10 @@ BEGIN
     JOIN SGA_PESSOA P_Paciente ON Pac.NIF = P_Paciente.NIF
     JOIN SGA_TRABALHADOR T_Autor ON R.id_autor = T_Autor.id_trabalhador
     JOIN SGA_PESSOA P_Autor ON T_Autor.NIF = P_Autor.NIF
-    JOIN SGA_VINCULO_CLINICO V ON R.id_paciente = V.id_paciente
-    WHERE V.id_trabalhador = @id_trabalhador 
+    -- Join corrigido para NIFs
+    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
+    JOIN SGA_TRABALHADOR T_Logado ON V.NIF_trabalhador = T_Logado.NIF
+    WHERE T_Logado.id_trabalhador = @id_trabalhador 
     ORDER BY R.data_criacao DESC;
 END
 GO
@@ -204,26 +238,6 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRY
         SELECT COUNT(*) FROM SGA_PACIENTE;
-    END TRY
-    BEGIN CATCH
-        THROW;
-    END CATCH
-END
-GO
-
-CREATE OR ALTER PROC sp_countPedidosPendentes
-AS
-/*
--- ==========================================================
--- Autor:       Bernardo Santos
--- Create Date: 18/12/2025
--- Descrição:   Conta pedidos no stado 'pendente'
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    BEGIN TRY
-        SELECT COUNT(*) FROM SGA_PEDIDO as p WHERE p.estado = 'pendente';
     END TRY
     BEGIN CATCH
         THROW;
@@ -361,58 +375,6 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sp_AdmissaoComPedido
-    -- Dados Pessoa
-    @nif CHAR(9),
-    @nome VARCHAR(50),
-    @data_nascimento DATE,
-    @telefone CHAR(9),
-    @email VARCHAR(100),
-    -- Dados Paciente
-    @observacoes VARCHAR(250),
-    -- Dados Pedido
-    @id_solicitante INT, -- Quem está a registar (ex: rececionista ou admin)
-    @tipo_pedido VARCHAR(50) -- ex: 'Triagem Inicial'
-AS
-/*
--- ==========================================================
--- Autor:       Bernardo Santos
--- Create Date: 18/12/2025
--- Descrição:   Cria um paciente, se nao existir, e cria um pedido
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    BEGIN TRY
-        BEGIN TRAN
-            -- 1. Garantir que a Pessoa existe (Reutiliza a tua lógica)
-            EXEC sp_guardarPessoa @nif, @nome, @data_nascimento, @telefone, @email;
-
-            -- 2. Garantir que o Paciente existe
-            DECLARE @id_paciente INT;
-            SELECT @id_paciente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif;
-
-            IF @id_paciente IS NULL
-            BEGIN
-                INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
-                VALUES (@nif, GETDATE(), @observacoes, 1);
-                SET @id_paciente = SCOPE_IDENTITY();
-            END
-
-            -- 3. CRIAR O PEDIDO (O elo de ligação!)
-            -- Nota: id_aceitante fica NULL porque ainda ninguém aceitou
-            INSERT INTO SGA_PEDIDO (id_paciente, id_solicitante, id_aceitante, tipo_pedido, estado, data_criacao)
-            VALUES (@id_paciente, @id_solicitante, NULL, @tipo_pedido, 'pendente', GETDATE());
-
-        COMMIT TRAN
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRAN;
-        THROW;
-    END CATCH
-END
-GO
-
 CREATE OR ALTER PROCEDURE sp_ListarPacientesParaAgenda
     @id_trabalhador INT,
     @perfil VARCHAR(20)
@@ -429,7 +391,6 @@ BEGIN
 
     IF @perfil = 'admin'
     BEGIN
-        -- Admin vê todos
         SELECT Pac.id_paciente, P.nome, P.NIF 
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
@@ -438,23 +399,17 @@ BEGIN
     END
     ELSE
     BEGIN
-        -- Médico vê só os seus
+        -- Médico vê só os seus (Via NIF)
         SELECT Pac.id_paciente, P.nome, P.NIF
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
-        JOIN SGA_VINCULO_CLINICO V ON Pac.id_paciente = V.id_paciente
-        WHERE V.id_trabalhador = @id_trabalhador AND Pac.ativo = 1
+        JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
+        JOIN SGA_TRABALHADOR T ON V.NIF_trabalhador = T.NIF
+        WHERE T.id_trabalhador = @id_trabalhador AND Pac.ativo = 1
         ORDER BY P.nome
     END
 END
 GO
-
-
-
-
-
-
-
 
 CREATE OR ALTER PROCEDURE sp_criarAgendamento
     @nif_paciente CHAR(9),
@@ -516,55 +471,6 @@ BEGIN
         INSERT INTO SGA_PACIENTE_ATENDIMENTO (id_paciente, num_atendimento, presenca) VALUES (@id_paciente, @new_id, 0);
     COMMIT TRAN
 END
-GO
-
-
-
-
-
-CREATE OR ALTER PROCEDURE sp_aceitarPedido
-    @id_pedido INT,
-    @id_trabalhador INT
-AS
-/*
--- ==========================================================
--- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Aceitar os pedidos de consulta
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    BEGIN TRY
-        BEGIN TRANSACTION;
-            
-            -- 1. Obter o id_paciente diretamente da tabela SGA_PEDIDO
-            DECLARE @id_paciente INT;
-            SELECT @id_paciente = id_paciente FROM SGA_PEDIDO WHERE id_pedido = @id_pedido;
-
-            -- 2. Atualizar o estado para 'aceite' e definir o aceitante
-            UPDATE SGA_PEDIDO 
-            SET estado = 'aceite', 
-                id_aceitante = @id_trabalhador 
-            WHERE id_pedido = @id_pedido AND estado = 'pendente';
-
-            -- 3. Criar o Vínculo Clínico automático na tabela intermédia
-            IF @id_paciente IS NOT NULL
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM SGA_VINCULO_CLINICO 
-                               WHERE id_trabalhador = @id_trabalhador AND id_paciente = @id_paciente)
-                BEGIN
-                    INSERT INTO SGA_VINCULO_CLINICO (id_trabalhador, id_paciente, tipo_vinculo)
-                    VALUES (@id_trabalhador, @id_paciente, 'Responsável via Inbox');
-                END
-            END
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-        THROW;
-    END CATCH
-END;
 GO
 
 CREATE OR ALTER PROCEDURE sp_listarEquipa   
@@ -715,6 +621,7 @@ END;
 GO
 
 
+
 CREATE OR ALTER PROCEDURE sp_listarPacientesSGA
     @id_trabalhador INT,
     @perfil VARCHAR(20)
@@ -733,7 +640,7 @@ BEGIN
         SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
-        WHERE Pac.ativo = 1 -- Apenas ativos
+        WHERE Pac.ativo = 1
         ORDER BY Pess.nome;
     END
     ELSE
@@ -741,8 +648,10 @@ BEGIN
         SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
-        JOIN SGA_VINCULO_CLINICO Vin ON Pac.id_paciente = Vin.id_paciente
-        WHERE Vin.id_trabalhador = @id_trabalhador AND Pac.ativo = 1 -- Apenas ativos
+        -- Join Corrigido
+        JOIN SGA_VINCULO_CLINICO Vin ON Pac.NIF = Vin.NIF_paciente
+        JOIN SGA_TRABALHADOR T ON Vin.NIF_trabalhador = T.NIF
+        WHERE T.id_trabalhador = @id_trabalhador AND Pac.ativo = 1
         ORDER BY Pess.nome;
     END
 END;
@@ -807,6 +716,7 @@ BEGIN
 END;
 GO
 
+
 CREATE OR ALTER PROCEDURE sp_obterFichaCompletaPaciente
     @id_paciente INT,
     @id_trabalhador INT,
@@ -822,13 +732,22 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- Validação: Admin vê tudo, o Colaborador vê apenas quem está a seu cargo
-    IF @perfil <> 'admin' AND NOT EXISTS (
-        SELECT 1 FROM SGA_VINCULO_CLINICO 
-        WHERE id_paciente = @id_paciente AND id_trabalhador = @id_trabalhador
-    )
+    
+    -- Se for admin, passa direto. Se for colaborador, verifica vínculo via NIF.
+    IF @perfil <> 'admin'
     BEGIN
-        THROW 50005, 'Acesso Negado: Não tem permissão clínica para este paciente.', 1;
+        -- Obter NIFs para validar
+        DECLARE @NifP CHAR(9), @NifT CHAR(9);
+        SELECT @NifP = NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente;
+        SELECT @NifT = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM SGA_VINCULO_CLINICO 
+            WHERE NIF_paciente = @NifP AND NIF_trabalhador = @NifT
+        )
+        BEGIN
+            THROW 50005, 'Acesso Negado: Não tem permissão clínica para este paciente.', 1;
+        END
     END
 
     SELECT 
@@ -839,7 +758,6 @@ BEGIN
     WHERE Pac.id_paciente = @id_paciente;
 END;
 GO
-
 
 CREATE OR ALTER PROCEDURE sp_obterDetalhesTrabalhador
     @id_trabalhador_alvo INT,
@@ -883,4 +801,70 @@ BEGIN
     LEFT JOIN SGA_PRESTADOR_SERVICO S ON T.id_trabalhador = S.id_trabalhador
     WHERE T.id_trabalhador = @id_trabalhador_alvo;
 END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_RegistoRapidoAgenda
+    @nif CHAR(9),
+    @nome VARCHAR(50),
+    @telemovel CHAR(9),
+    @data_nasc DATE,
+    @id_paciente_gerado INT OUTPUT -- Parâmetro de saída
+AS
+/*
+-- ==========================================================
+-- Autor:       Bernardo Santos
+-- Create Date: 19/12/2025
+-- Descrição:   Cria paciente novo com registo rapido
+                no agendamento
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+            
+            -- 1. TRATAR DA PESSOA (Lógica Upsert)
+            -- Não chamamos a outra SP para evitar conflitos de transações aninhadas (COMMITs internos)
+            MERGE SGA_PESSOA AS target
+            USING (SELECT @nif, @nome, @data_nasc, @telemovel) 
+               AS source (NIF, nome, data_nascimento, telefone)
+            ON (target.NIF = source.NIF)
+            WHEN MATCHED THEN
+                UPDATE SET nome = source.nome, 
+                           data_nascimento = source.data_nascimento, 
+                           telefone = source.telefone
+            WHEN NOT MATCHED THEN
+                INSERT (NIF, nome, data_nascimento, telefone)
+                VALUES (source.NIF, source.nome, source.data_nascimento, source.telefone);
+
+            -- 2. TRATAR DO PACIENTE
+            DECLARE @id_existente INT;
+            SELECT @id_existente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif;
+
+            IF @id_existente IS NULL
+            BEGIN
+                -- Inserir Novo
+                INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
+                VALUES (@nif, GETDATE(), 'Registo Rápido via Agenda', 1);
+                
+                SET @id_paciente_gerado = SCOPE_IDENTITY();
+            END
+            ELSE
+            BEGIN
+                -- Reativar Existente
+                UPDATE SGA_PACIENTE SET ativo = 1 WHERE id_paciente = @id_existente;
+                SET @id_paciente_gerado = @id_existente;
+            END
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        -- Isto sim, é um ROLLBACK real de base de dados
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        
+        -- Relança o erro para o Python saber que falhou
+        THROW;
+    END CATCH
+END
 GO
