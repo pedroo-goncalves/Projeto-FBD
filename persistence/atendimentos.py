@@ -26,40 +26,30 @@ def obter_horarios_livres(cursor, id_medico, data):
         return []
     
 def listar_eventos_calendario(cursor, user_id, perfil):
-    """
-    Lista eventos para o calendário.
-    - Se perfil for 'colaborador': Vê apenas os agendamentos onde é o médico responsável.
-    - Se perfil for 'admin': Vê a agenda de toda a clínica.
-    """
-    
-    base_query = """
+    # Query Base
+    query = """
     SELECT 
         A.num_atendimento,
-        Pess.nome,
+        PessPac.nome AS NomePaciente,
         A.data_inicio,
         A.data_fim,
-        A.estado
+        A.estado,
+        PessMed.nome AS NomeMedico
     FROM SGA_ATENDIMENTO A
     JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
     JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
-    JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
+    JOIN SGA_PESSOA PessPac ON Pac.NIF = PessPac.NIF
+    -- Joins para saber o médico
+    JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
+    JOIN SGA_TRABALHADOR T ON TA.id_trabalhador = T.id_trabalhador
+    JOIN SGA_PESSOA PessMed ON T.NIF = PessMed.NIF
+    WHERE A.estado != 'cancelado'
     """
 
-    try:
-        if perfil == 'colaborador':
-            # so ver os seus atendimentos
-            query = base_query + """
-            JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
-            WHERE A.estado != 'cancelado' 
-              AND TA.id_trabalhador = ?
-            """
-            cursor.execute(query, (user_id,))
-        else:
-            query = base_query + " WHERE A.estado != 'cancelado'"
-            cursor.execute(query)
+    if perfil == 'colaborador':
+        query += " AND TA.id_trabalhador = ?"
+        cursor.execute(query, (user_id,))
+    else:
+        cursor.execute(query)
             
-        return cursor.fetchall()
-        
-    except Exception as e:
-        print(f"Erro ao listar eventos: {e}")
-        return []
+    return cursor.fetchall()

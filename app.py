@@ -167,6 +167,7 @@ def agenda():
 @login_required
 def criar_agendamento():
     nif_paciente = request.form.get('nif_paciente')
+    duracao = int(request.form.get('duracao', 60))
     
     if session['perfil'] == 'colaborador':
         id_medico = session['user_id']
@@ -186,8 +187,8 @@ def criar_agendamento():
         data_completa = f"{data_str} {hora_str}:00"
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_criarAgendamento ?, ?, ?, ?", 
-                       (nif_paciente, id_medico, data_completa, preferencia_online))
+        cursor.execute("EXEC sp_criarAgendamento ?, ?, ?, ?, ?", 
+                       (nif_paciente, id_medico, data_completa, preferencia_online, duracao))
         conn.commit()
         conn.close()
         flash('Consulta agendada com sucesso!', 'success')
@@ -434,18 +435,25 @@ def pacientes_arquivo():
 def api_eventos():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Chama a função de persistência com filtro de utilizador
     rows = listar_eventos_calendario(cursor, session['user_id'], session.get('perfil'))
     conn.close()
     
     eventos = []
     for row in rows:
+        # row[1] é Paciente, row[5] é Médico
+        titulo = row[1]
+        
+        # Se for Admin, mostra o nome do médico antes
+        if session.get('perfil') == 'admin':
+            titulo = f"[{row[5].split()[0]}] {row[1]}" # Ex: [Dr.João] Ana Silva
+
         eventos.append({
-            'title': row[1],
+            'title': titulo,
             'start': row[2].isoformat(),
             'end': row[3].isoformat(),
             'color': '#198754' if row[4] == 'finalizado' else ('#dc3545' if row[4] == 'falta' else '#0d6efd')
         })
+        
     return jsonify(eventos)
 
 @app.route('/api/criar_paciente_rapido', methods=['POST'])

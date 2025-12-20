@@ -305,47 +305,37 @@ GO
 
 CREATE OR ALTER PROCEDURE sp_ObterHorariosLivres
     @id_medico INT,
-    @data_consulta DATE
+    @data_consulta DATE,
+    @is_online BIT = 0 
 AS
-/*
--- ==========================================================
--- Autor:       Bernardo Santos
--- Create Date: 18/12/2025
--- Descrição:   Obter horários livres
--- ==========================================================
-*/
 BEGIN
     SET NOCOUNT ON;
     
-    -- Configuração (Podes ajustar isto)
+    -- 1. Definição do Horário de Funcionamento (9h às 18h)
     DECLARE @HoraInicio TIME = '09:00';
     DECLARE @HoraFim TIME = '18:00';
     DECLARE @DuracaoMinutos INT = 60; 
 
-    -- Tabela temporária para slots
     CREATE TABLE #Slots (Hora TIME);
 
-    -- 1. Gerar todos os slots possíveis
+    -- 2. Gerar Slots (excluindo 13:00 para almoço)
     DECLARE @HoraAtual TIME = @HoraInicio;
     WHILE @HoraAtual < @HoraFim
     BEGIN
-        -- Excluir hora de almoço (ex: 13:00) se quiseres
-        IF @HoraAtual != '13:00' 
-            INSERT INTO #Slots VALUES (@HoraAtual);
-            
+        IF @HoraAtual != '13:00' INSERT INTO #Slots VALUES (@HoraAtual);
         SET @HoraAtual = DATEADD(MINUTE, @DuracaoMinutos, @HoraAtual);
     END
 
-    -- 2. Devolver apenas os LIVRES
-    SELECT LEFT(CAST(s.Hora AS VARCHAR), 5) AS Hora -- Formata como "09:00"
+    -- 3. Retornar Slots onde o MÉDICO NÃO ESTÁ OCUPADO
+    -- Removemos a verificação complexa das salas. Se o médico está livre, a vaga existe.
+    SELECT LEFT(CAST(s.Hora AS VARCHAR), 5) AS Hora
     FROM #Slots s
     WHERE NOT EXISTS (
-        SELECT 1 
-        FROM SGA_ATENDIMENTO a
-        JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
+        SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
+        JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
         WHERE ta.id_trabalhador = @id_medico
-          AND CAST(a.data_inicio AS DATE) = @data_consulta -- Mesmo dia
-          AND CAST(a.data_inicio AS TIME) = s.Hora       -- Mesma hora
+          AND CAST(a.data_inicio AS DATE) = @data_consulta
+          AND CAST(a.data_inicio AS TIME) = s.Hora
           AND a.estado != 'cancelado'
     );
 
@@ -416,6 +406,7 @@ CREATE OR ALTER PROCEDURE sp_criarAgendamento
     @id_medico INT,
     @data_inicio DATETIME2,
     @preferencia_online BIT -- 1=Online, 0=Presencial
+    @duracao INT = 60
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -425,7 +416,7 @@ BEGIN
     SELECT @id_paciente = id_paciente FROM SGA_PACIENTE WHERE NIF = @nif_paciente AND ativo = 1;
     IF @id_paciente IS NULL THROW 50009, 'Paciente não encontrado.', 1;
 
-    -- 2. Validar Disponibilidade do Médico
+    -- 2. Validar se o Médico está livre
     IF EXISTS (
         SELECT 1 FROM SGA_TRABALHADOR_ATENDIMENTO ta
         JOIN SGA_ATENDIMENTO a ON ta.num_atendimento = a.num_atendimento
@@ -435,41 +426,65 @@ BEGIN
     )
     THROW 50010, 'O médico já tem consulta marcada a essa hora.', 1;
 
-    -- 3. ALOCAR SALA
+    -- 3. ALOCAR SALA (Lógica de Gabinete Fixo)
     DECLARE @id_sala_final INT;
 
     IF @preferencia_online = 1
     BEGIN
-        -- Busca a sala Online
+        -- Sala Virtual
         SELECT TOP 1 @id_sala_final = id_sala FROM SGA_SALA WHERE is_online = 1;
     END
     ELSE
     BEGIN
-        -- Busca uma sala FÍSICA que esteja livre nessa hora
-        SELECT TOP 1 @id_sala_final = s.id_sala
-        FROM SGA_SALA s
-        WHERE s.is_online = 0 AND s.ativa = 1
-        AND s.id_sala NOT IN (
-            SELECT a.id_sala 
-            FROM SGA_ATENDIMENTO a
-            WHERE a.estado != 'cancelado'
-              AND (@data_inicio >= a.data_inicio AND @data_inicio < a.data_fim)
-        );
+        -- A. Tenta encontrar o Gabinete DO Médico
+        SELECT @id_sala_final = id_sala FROM SGA_SALA WHERE id_dono = @id_medico AND ativa = 1;
+
+        -- B. Fallback: Se o médico não tiver gabinete fixo, procura uma sala "sem dono" livre
+        IF @id_sala_final IS NULL
+        BEGIN
+            SELECT TOP 1 @id_sala_final = s.id_sala
+            FROM SGA_SALA s
+            WHERE s.is_online = 0 AND s.ativa = 1 AND s.id_dono IS NULL
+            AND s.id_sala NOT IN (
+                SELECT a.id_sala FROM SGA_ATENDIMENTO a
+                WHERE a.estado != 'cancelado' 
+                AND (@data_inicio >= a.data_inicio AND @data_inicio < a.data_fim)
+            )
+        END
     END
 
-    IF @id_sala_final IS NULL
-        THROW 50011, 'Não há salas disponíveis (ou sala Online não configurada).', 1;
+    IF @id_sala_final IS NULL 
+        THROW 50011, 'Não foi possível alocar sala (Médico sem gabinete e salas comuns cheias).', 1;
 
-    -- 4. Inserir
-    BEGIN TRAN
-        INSERT INTO SGA_ATENDIMENTO (id_sala, data_inicio, data_fim, estado)
-        VALUES (@id_sala_final, @data_inicio, DATEADD(MINUTE, 60, @data_inicio), 'agendado');
-        
-        DECLARE @new_id INT = SCOPE_IDENTITY();
+    -- 4. Gravar (Com a lógica de Auto-Vínculo NIF que já tinhas)
+    BEGIN TRY
+        BEGIN TRAN
+            -- (O teu código de vínculo NIF aqui...)
+            DECLARE @nif_medico_agenda CHAR(9);
+            SELECT @nif_medico_agenda = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_medico;
 
-        INSERT INTO SGA_TRABALHADOR_ATENDIMENTO (id_trabalhador, num_atendimento) VALUES (@id_medico, @new_id);
-        INSERT INTO SGA_PACIENTE_ATENDIMENTO (id_paciente, num_atendimento, presenca) VALUES (@id_paciente, @new_id, 0);
-    COMMIT TRAN
+            IF @nif_medico_agenda IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM SGA_VINCULO_CLINICO WHERE NIF_trabalhador = @nif_medico_agenda AND NIF_paciente = @nif_paciente
+            )
+            INSERT INTO SGA_VINCULO_CLINICO (NIF_trabalhador, NIF_paciente, tipo_vinculo) VALUES (@nif_medico_agenda, @nif_paciente, 'Responsável');
+
+            -- Inserir Duracao
+            INSERT INTO SGA_ATENDIMENTO (id_sala, data_inicio, data_fim, estado)
+            VALUES (@id_sala_final, @data_inicio, DATEADD(MINUTE, @duracao, @data_inicio), 'agendado');
+
+            -- Inserir Atendimento
+            INSERT INTO SGA_ATENDIMENTO (id_sala, data_inicio, data_fim, estado)
+            VALUES (@id_sala_final, @data_inicio, DATEADD(MINUTE, @duracao, @data_inicio), 'agendado');
+            
+            DECLARE @new_id INT = SCOPE_IDENTITY();
+            INSERT INTO SGA_TRABALHADOR_ATENDIMENTO (id_trabalhador, num_atendimento) VALUES (@id_medico, @new_id);
+            INSERT INTO SGA_PACIENTE_ATENDIMENTO (id_paciente, num_atendimento, presenca) VALUES (@id_paciente, @new_id, 0);
+        COMMIT TRAN
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+        THROW;
+    END CATCH
 END
 GO
 
