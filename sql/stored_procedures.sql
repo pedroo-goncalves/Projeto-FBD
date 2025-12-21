@@ -1,7 +1,3 @@
--- =========================================================================================
--- FICHEIRO: 05_procedimentos.sql
--- DESCRIÇÃO: Stored Procedures (Refatoradas com UDFs e Transações)
--- =========================================================================================
 SET ANSI_NULLS ON;
 GO
 SET QUOTED_IDENTIFIER ON;
@@ -161,10 +157,6 @@ BEGIN
     WHERE id_trabalhador = @id_trabalhador;
 END;
 GO
-
--- -------------------------------------------------------------------------
--- SPs MANTIDAS EXACTAMENTE IGUAIS AO ORIGINAL (Para garantir compatibilidade)
--- -------------------------------------------------------------------------
 
 CREATE OR ALTER PROCEDURE sp_guardarPessoa
     @NIF CHAR(9),
