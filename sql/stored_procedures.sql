@@ -291,44 +291,6 @@ BEGIN
 END
 GO
 
-CREATE OR ALTER PROCEDURE sp_listarMeusPacientes
-    @nif_medico CHAR(9)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SELECT 
-        P.nome, P.NIF, Pac.observacoes, Pac.data_inscricao, Pac.id_paciente 
-    FROM SGA_PACIENTE Pac 
-    JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
-    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente 
-    WHERE V.NIF_trabalhador = @nif_medico 
-    ORDER BY Pac.data_inscricao DESC; 
-END;
-GO
-
-CREATE OR ALTER PROCEDURE sp_listarRelatoriosVinculados
-    @nif_login CHAR(9) 
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    SELECT 
-        R.id, 
-        P_Paciente.nome AS paciente_nome, 
-        R.data_criacao, 
-        R.tipo_relatorio, 
-        P_Autor.nome AS autor_nome
-    FROM SGA_RELATORIO R
-    JOIN SGA_PACIENTE Pac ON R.id_paciente = Pac.id_paciente
-    JOIN SGA_PESSOA P_Paciente ON Pac.NIF = P_Paciente.NIF
-    JOIN SGA_TRABALHADOR T_Autor ON R.id_autor = T_Autor.id_trabalhador
-    JOIN SGA_PESSOA P_Autor ON T_Autor.NIF = P_Autor.NIF
-    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
-    WHERE V.NIF_trabalhador = @nif_login 
-    ORDER BY R.data_criacao DESC;
-END
-GO
-
 CREATE OR ALTER PROC  sp_countPaciente
 AS
 BEGIN

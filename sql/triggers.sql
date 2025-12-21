@@ -1,7 +1,3 @@
--- =========================================================================================
--- FICHEIRO: 06_triggers.sql
--- DESCRIÇÃO: Triggers para automação de regras de negócio
--- =========================================================================================
 CREATE OR ALTER TRIGGER trg_DesativarTrabalhador
 ON SGA_TRABALHADOR
 AFTER UPDATE
@@ -9,7 +5,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Se o estado mudou para inativo (0) e a data_fim ainda é NULL, preenche automaticamente
     IF UPDATE(ativo)
     BEGIN
         UPDATE T
