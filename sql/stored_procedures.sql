@@ -42,11 +42,11 @@ CREATE OR ALTER PROCEDURE sp_inserirPaciente
     @NIF_paciente CHAR(9),
     @data_inscricao DATE,
     @observacoes VARCHAR(250) = NULL,
-    @NIF_trabalhador CHAR(9) = NULL -- Recebe o NIF do médico (opcional)
+    @id_trabalhador INT = NULL -- Alterado de NIF (CHAR) para ID (INT)
 AS
 /*
--- Author:      Bernardo Santos
--- Description: Cria ou Reativa um paciente e gera o vínculo clínico num só passo.
+-- Author:      Bernardo Santos / Pedro Gonçalves
+-- Description: Cria ou Reativa um paciente e gera o vínculo clínico usando o ID do médico.
 */
 BEGIN
     SET NOCOUNT ON;
@@ -55,10 +55,21 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM SGA_PESSOA WHERE NIF = @NIF_paciente)
         THROW 50002, 'Pessoa não encontrada. Registe a Pessoa antes do Paciente.', 1;
 
+    -- 2. Traduzir ID do Trabalhador para NIF (Correção do Erro FK)
+    DECLARE @NIF_trabalhador CHAR(9);
+    IF @id_trabalhador IS NOT NULL
+    BEGIN
+        SELECT @NIF_trabalhador = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+        
+        -- Segurança extra: se enviaram um ID que não existe
+        IF @NIF_trabalhador IS NULL 
+            THROW 50003, 'O médico selecionado não foi encontrado no sistema.', 1;
+    END
+
     BEGIN TRY
         BEGIN TRANSACTION;
 
-            -- 2. Verificar se já existe (Upsert)
+            -- 3. Verificar se o paciente já existe (Upsert)
             DECLARE @id_existente INT;
             SELECT @id_existente = id_paciente FROM SGA_PACIENTE WHERE NIF = @NIF_paciente;
 
@@ -76,7 +87,7 @@ BEGIN
                 WHERE id_paciente = @id_existente;
             END
 
-            -- 3. Criar Vínculo Clínico (se um médico foi indicado)
+            -- 4. Criar Vínculo Clínico (usando o NIF que fomos buscar)
             IF @NIF_trabalhador IS NOT NULL
             BEGIN
                 -- Garante que não duplica o vínculo
