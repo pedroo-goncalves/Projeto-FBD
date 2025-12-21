@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
-        /* --- ESTILO PARTILHADO COM AGENDA (DESIGN NOVO) --- */
+        /* --- Estilos da Navbar (Iguais à Agenda) --- */
         .navbar-sga {
             background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%) !important;
             padding: 1rem 0;
@@ -33,7 +33,6 @@
             opacity: 0.8;
         }
 
-        /* CORREÇÃO DO BOTÃO SAIR */
         .btn-sair {
             border: 2px solid rgba(255, 255, 255, 0.8) !important;
             color: white !important;
@@ -44,6 +43,7 @@
             background-color: white !important;
             color: #0d6efd !important;
             transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
         }
 
         /* --- DASHBOARD CARDS --- */
@@ -146,16 +146,25 @@
 
 <body class="bg-light">
 
-    <nav class="navbar navbar-expand-lg navbar-dark navbar-sga mb-5">
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-sga mb-4">
         <div class="container">
-            <a class="navbar-brand" href="/dashboard"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
-            <div class="collapse navbar-collapse">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fa-solid fa-brain me-2"></i>SGA Psicologia
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
-                    <li class="nav-item"><a class="nav-link active fw-bold" href="/dashboard">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('pacientes') }}">Pacientes</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('equipa') }}">Equipa</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('agenda') }}">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('relatorios') }}">Relatórios</a></li>
+
                     <li class="nav-item ms-3">
                         <a class="nav-link btn btn-sm btn-outline-light px-4 rounded-pill btn-sair"
-                            href="/logout">Sair</a>
+                            href="{{ url_for('logout') }}">Sair ({{ nome_user }})</a>
                     </li>
                 </ul>
             </div>
