@@ -7,76 +7,133 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Estilo SGA - Arquivo Profissional */
+        .archive-header { background: linear-gradient(135deg, #495057 0%, #212529 100%); color: white; padding: 40px 0; border-radius: 0 0 20px 20px; margin-bottom: 30px; }
+        .sga-card { border: none; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.06); overflow: hidden; }
+        .table thead th { background-color: #f8f9fa; color: #6c757d; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; border-top: none; padding: 15px 20px; }
+        .avatar-archive { width: 40px; height: 40px; background: #e9ecef; color: #495057; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-weight: bold; }
+        
+        /* Botões de Ação */
+        .btn-restore, .btn-delete-final { border-radius: 20px; padding: 5px 15px; font-weight: 600; font-size: 0.8rem; transition: 0.3s; border: none; }
+        .btn-restore:hover, .btn-delete-final:hover { transform: scale(1.05); }
+        
+        .btn-delete-final {
+            background-color: #fff5f5;
+            color: #e03131;
+            border: 1px solid #ffc9c9;
+        }
+        .btn-delete-final:hover {
+            background-color: #fa5252;
+            color: white;
+            box-shadow: 0 4px 10px rgba(250, 82, 82, 0.2);
+        }
+
+        .status-tag { font-size: 0.7rem; padding: 4px 10px; border-radius: 6px; font-weight: 700; background: #fff0f0; color: #dc3545; border: 1px solid #ffdbdb; }
+    </style>
 </head>
 <body class="bg-light">
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="{{ url_for('equipa') }}">
-                <i class="fa-solid fa-user-gear me-2"></i>Gestão de Arquivo (Staff)
-            </a>
-            <div class="ms-auto">
-                <a href="{{ url_for('equipa') }}" class="btn btn-sm btn-outline-light px-3">
-                    <i class="fa-solid fa-arrow-left me-2"></i>Voltar à Equipa
-                </a>
+    <div class="archive-header shadow-sm">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="fw-bold mb-1"><i class="fa-solid fa-box-archive me-3"></i>Arquivo da Equipa</h2>
+                <p class="mb-0 opacity-75 small text-uppercase letter-spacing-1">Histórico de Colaboradores Inativos</p>
             </div>
+            <a href="{{ url_for('equipa') }}" class="btn btn-outline-light rounded-pill px-4 btn-sm">
+                <i class="fa-solid fa-arrow-left me-2"></i>Voltar à Gestão
+            </a>
         </div>
-    </nav>
+    </div>
 
-    <div class="container">
+    <div class="container pb-5">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
-                        {{ message }}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm rounded-4" role="alert">
+                        <i class="fa-solid fa-circle-info me-2"></i> {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
 
-        <div class="mb-4">
-            <h3 class="text-secondary fw-light">Funcionários Inativos</h3>
-            <p class="text-muted small">Estes utilizadores não têm permissão para entrar no sistema.</p>
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="input-group input-group-sm shadow-sm rounded-pill overflow-hidden">
+                    <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-magnifying-glass"></i></span>
+                    <input type="text" id="searchArchive" class="form-control border-start-0 ps-0" placeholder="Pesquisar no arquivo..." onkeyup="filterArchive()">
+                </div>
+            </div>
         </div>
 
-        <div class="card shadow-sm border-0">
+        <div class="card sga-card">
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="table-dark">
+                    <table class="table table-hover align-middle mb-0" id="tableArchive">
+                        <thead>
                             <tr>
-                                <th class="ps-4">Nome / Perfil</th>
-                                <th>Contacto</th>
-                                <th>Data de Saída</th>
-                                <th class="text-end pe-4">Ação</th>
+                                <th class="ps-4">Colaborador</th>
+                                <th>Contactos</th>
+                                <th>Motivo / Perfil</th>
+                                <th>Data de Desativação</th>
+                                <th class="text-end pe-4">Gestão de Arquivo</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for membro in equipa %}
                             <tr>
                                 <td class="ps-4">
-                                    <div class="fw-bold">{{ membro[0] }}</div>
-                                    <small class="badge bg-secondary text-uppercase" style="font-size: 0.7rem;">{{ membro[3] }}</small>
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar-archive me-3">
+                                            {{ membro[0][:1] }}
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold text-dark">{{ membro[0] }}</div>
+                                            <div class="text-muted small">ID: #{{ membro[5] }}</div>
+                                        </div>
+                                    </div>
                                 </td>
                                 <td>
-                                    <div class="small">{{ membro[1] }}</div>
-                                    <div class="small text-muted">{{ membro[2] }}</div>
+                                    <div class="small fw-medium"><i class="fa-regular fa-envelope me-2 opacity-50"></i>{{ membro[1] }}</div>
+                                    <div class="small text-muted"><i class="fa-solid fa-phone me-2 opacity-50"></i>{{ membro[2] }}</div>
                                 </td>
-                                <td>{{ membro[4] }}</td>
+                                <td>
+                                    <span class="badge bg-light text-secondary border px-2 py-1 text-uppercase" style="font-size: 0.65rem;">
+                                        {{ membro[3] }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="status-tag">
+                                        <i class="fa-solid fa-calendar-xmark me-1"></i> {{ membro[4] }}
+                                    </span>
+                                </td>
                                 <td class="text-end pe-4">
-                                    <a href="{{ url_for('ativar_funcionario', id_trabalhador=membro[5]) }}" 
-                                       class="btn btn-sm btn-success shadow-sm"
-                                       onclick="return confirm('Deseja restaurar o acesso de {{ membro[0] }}?')">
-                                        <i class="fa-solid fa-user-check me-2"></i>Reativar
-                                    </a>
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <a href="{{ url_for('ativar_funcionario', id_trabalhador=membro[5]) }}" 
+                                           class="btn btn-success btn-restore shadow-sm"
+                                           onclick="return confirm('Deseja restaurar o acesso de {{ membro[0] }}?')">
+                                            <i class="fa-solid fa-rotate-left me-1"></i> Reativar
+                                        </a>
+
+                                        {% if session.get('perfil') == 'admin' %}
+                                        <form action="{{ url_for('eliminar_trabalhador', id_trabalhador=membro[5]) }}" method="POST" 
+                                              onsubmit="return confirm('AVISO: Esta ação é definitiva. Ao eliminar {{ membro[0] }}, todos os seus vínculos clínicos serão removidos. Continuar?')">
+                                            <button type="submit" class="btn btn-delete-final shadow-sm">
+                                                <i class="fa-solid fa-user-xmark me-1"></i> Eliminar
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="4" class="text-center py-5 text-muted">
-                                    <i class="fa-solid fa-users-slash d-block fa-3x mb-3 text-secondary-emphasis"></i>
-                                    O arquivo da equipa está vazio.
+                                <td colspan="5" class="text-center py-5">
+                                    <div class="py-4">
+                                        <i class="fa-solid fa-folder-open fa-3x text-light mb-3"></i>
+                                        <h5 class="text-muted fw-light">O arquivo está limpo.</h5>
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -87,8 +144,18 @@
         </div>
     </div>
 
-    
+    <script>
+        function filterArchive() {
+            let input = document.getElementById("searchArchive");
+            let filter = input.value.toLowerCase();
+            let rows = document.getElementById("tableArchive").getElementsByTagName("tr");
 
+            for (let i = 1; i < rows.length; i++) {
+                let text = rows[i].textContent.toLowerCase();
+                rows[i].style.display = text.includes(filter) ? "" : "none";
+            }
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

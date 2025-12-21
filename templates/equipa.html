@@ -44,29 +44,26 @@
         {% endwith %}
 
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h3 class="text-secondary fw-light">
-                    <i class="fa-solid fa-user-doctor me-2"></i>Corpo Clínico & Staff
+            <div> 
+                <h3 class="text-secondary fw-bold mb-0"><i class="fa-solid fa-users me-2"></i>Equipa</h3>
+                <div class="mt-1">
                     {% if session.get('perfil') == 'admin' %}
-                        <a href="{{ url_for('equipa_arquivo') }}" class="ms-3 small text-decoration-none text-muted" title="Ver Arquivo da Equipa">
-                            <i class="fa-solid fa-box-archive"></i>
-                        </a>
-                    {% endif %}
-                </h3>
-                <p class="text-muted small mb-0">
-                    {% if session.get('perfil') == 'admin' %}
-                        <span class="badge bg-info text-dark">Administrador</span>
+                        <span class="badge bg-info text-dark badge-perfil">Acesso de Administrador</span>
                     {% else %}
-                        <span class="badge bg-secondary">Colaborador</span>
+                        <span class="badge bg-secondary badge-perfil">Acesso de Colaborador</span>
                     {% endif %}
-                </p>
+                </div>
+            </div> 
+            <div class="d-flex gap-2">
+                {% if session.get('perfil') == 'admin' %}
+                <a href="{{ url_for('equipa_arquivo') }}" class="btn btn-outline-secondary shadow-sm" title="Ver Arquivo">
+                    <i class="fa-solid fa-box-archive"></i>
+                </a>
+                <button class="btn btn-success shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoFuncionario">
+                    <i class="fa-solid fa-user-plus me-2"></i>Novo Trabalhador
+                </button>
+                {% endif %}
             </div>
-            
-            {% if session.get('perfil') == 'admin' %}
-            <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoFuncionario">
-                <i class="fa-solid fa-user-plus me-2"></i>Registar Profissional
-            </button>
-            {% endif %}
         </div>
 
         <div class="row mb-4">
@@ -89,7 +86,7 @@
                         <img src="https://ui-avatars.com/api/?name={{ membro[0]|replace(' ', '+') }}&background=0d6efd&color=fff" class="rounded-circle mb-3 shadow-sm" width="70">
                         
                         <h5 class="fw-bold mb-1">
-                            <a href="{{ url_for('equipa_detalhes', id_trabalhador=membro[5]) }}" class="text-dark text-decoration-none staff-name" title="Ver ficha completa">
+                            <a href="{{ url_for('equipa_detalhes', id_trabalhador=membro[6]) }}" class="text-dark text-decoration-none staff-name" title="Ver ficha completa">
                                 {{ membro[0] }} <i class="fa-solid fa-circle-info ms-1 small text-primary"></i>
                             </a>
                         </h5>
@@ -111,7 +108,7 @@
 
                         {% if session.get('perfil') == 'admin' %}
                         <hr class="my-3">
-                        <a href="{{ url_for('remover_funcionario', id_trabalhador=membro[5]) }}" 
+                        <a href="{{ url_for('remover_funcionario', id_trabalhador=membro[6]) }}" 
                            class="btn btn-sm btn-outline-danger w-100" 
                            onclick="return confirm('Tem a certeza que deseja desativar o acesso de {{ membro[0] }}?')">
                             <i class="fa-solid fa-user-slash me-2"></i>Suspender Acesso
@@ -130,82 +127,129 @@
     </div>
 
     {% if session.get('perfil') == 'admin' %}
-    <div class="modal fade" id="modalNovoFuncionario" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content border-0">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title fw-bold">Registar Novo Profissional</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal fade" id="modalNovoFuncionario" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0" style="background: linear-gradient(135deg, #212529 0%, #495057 100%); color: white; border-radius: 12px 12px 0 0;">
+                    <div class="p-3">
+                        <h5 class="modal-title fw-bold">
+                            <i class="fa-solid fa-user-tie me-2"></i>Registar Novo Profissional
+                        </h5>
+                        <p class="small mb-0 opacity-75">Adicione um novo colaborador ao Corpo Clínico ou Administrativo.</p>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <form action="{{ url_for('criar_funcionario') }}" method="POST">
-                    <div class="modal-body p-4">
-                        <div class="row g-3">
-                            <div class="col-md-8">
-                                <label class="form-label small fw-bold">Nome Completo</label>
-                                <input type="text" name="nome" class="form-control" required minlength="3">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label small fw-bold">NIF</label>
-                                <input type="text" name="nif" class="form-control" pattern="[0-9]{9}" required maxlength="9">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Email</label>
-                                <input type="email" name="email" class="form-control" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Telemóvel</label>
-                                <input type="text" name="telemovel" class="form-control" pattern="[0-9]{9}" required maxlength="9">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Data Nascimento</label>
-                                <input type="date" name="data_nasc" class="form-control" max="{{ now_date }}" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Cédula Profissional</label>
-                                <input type="text" name="cedula" class="form-control" maxlength="5" placeholder="Opcional">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Regime de Contratação</label>
-                                <select name="categoria" id="selectCategoria" class="form-select" onchange="toggleCampos()" required>
-                                    <option value="CONTRATADO">Contratado (SGA_CONTRATADO)</option>
-                                    <option value="PRESTADOR">Prestador de Serviços (SGA_PRESTADOR_SERVICO)</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Perfil de Sistema</label>
-                                <select name="perfil" class="form-select" required>
-                                    <option value="colaborador">Colaborador (Médico/Terapeuta)</option>
-                                    <option value="admin">Administrador</option>
-                                </select>
-                            </div>
-                            
-                            <div id="seccaoContratado" class="col-12">
-                                <label class="form-label small fw-bold">Tipo de Contrato</label>
-                                <input type="text" name="contrato_tipo" class="form-control" placeholder="Ex: Termo Certo, Indeterminado">
-                            </div>
 
-                            <div id="seccaoPrestador" class="col-12 d-none">
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label small fw-bold">Ordem Profissional</label>
-                                        <input type="text" name="ordem" class="form-control" placeholder="Ex: Ordem dos Psicólogos">
+                <form action="{{ url_for('criar_funcionario') }}" method="POST" id="formNovoFuncionario">
+                    <div class="modal-body p-4">
+                        <div class="mb-4">
+                            <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-2">
+                                <i class="fa-solid fa-id-card me-2"></i>Identificação e Contacto
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-8">
+                                    <div class="form-floating">
+                                        <input type="text" name="nome" class="form-control border-0 bg-light" id="fNome" placeholder="Nome" required minlength="3">
+                                        <label for="fNome">Nome Completo</label>
                                     </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label small fw-bold">Remuneração (€)</label>
-                                        <input type="number" step="0.01" name="remuneracao" class="form-control">
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-floating">
+                                        <input type="text" name="nif" class="form-control border-0 bg-light" id="fNif" placeholder="NIF" pattern="[0-9]{9}" required maxlength="9">
+                                        <label for="fNif">NIF (9 dígitos)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="email" name="email" class="form-control border-0 bg-light" id="fEmail" placeholder="Email" required>
+                                        <label for="fEmail">Email Profissional</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="text" name="telemovel" class="form-control border-0 bg-light" id="fTel" placeholder="Telemóvel" pattern="[0-9]{9}" required maxlength="9">
+                                        <label for="fTel">Telemóvel</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="date" name="data_nasc" class="form-control border-0 bg-light" id="fNasc" max="{{ now_date }}" required>
+                                        <label for="fNasc">Data de Nascimento</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <input type="text" name="cedula" class="form-control border-0 bg-light" id="fCedula" placeholder="Cédula" maxlength="5">
+                                        <label for="fCedula">Cédula Profissional (Opcional)</label>
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="col-12">
-                                <label class="form-label small fw-bold">Definir Password Inicial</label>
-                                <input type="password" name="senha" class="form-control" required minlength="5">
+                        <div class="mb-4">
+                            <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-2">
+                                <i class="fa-solid fa-file-contract me-2"></i>Vínculo e Regime
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <select name="categoria" id="selectCategoria" class="form-select border-0 bg-light" onchange="toggleCampos()" required>
+                                            <option value="CONTRATADO">Funcionário</option>
+                                            <option value="PRESTADOR">Prestador de Serviços</option>
+                                        </select>
+                                        <label for="selectCategoria">Regime de Contratação</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating">
+                                        <select name="perfil" class="form-select border-0 bg-light" id="fPerfil" required>
+                                            <option value="colaborador">Colaborador (Clínico/Técnico)</option>
+                                            <option value="admin">Administrador</option>
+                                        </select>
+                                        <label for="fPerfil">Perfil de Acesso ao Sistema</label>
+                                    </div>
+                                </div>
+                                <div id="seccaoContratado" class="col-12">
+                                    <div class="form-floating">
+                                        <input type="text" name="contrato_tipo" class="form-control border-0 bg-light" id="fContrato" placeholder="Tipo Contrato">
+                                        <label for="fContrato">Tipo de Contrato (Ex: Termo Certo, Indeterminado)</label>
+                                    </div>
+                                </div>
+                                <div id="seccaoPrestador" class="col-12 d-none">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <div class="form-floating">
+                                                <input type="text" name="ordem" class="form-control border-0 bg-light" id="fOrdem" placeholder="Ordem">
+                                                <label for="fOrdem">Ordem Profissional</label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-floating">
+                                                <input type="number" step="0.01" name="remuneracao" class="form-control border-0 bg-light" id="fRem" placeholder="Remuneração">
+                                                <label for="fRem">Remuneração Base (€)</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-2">
+                                <i class="fa-solid fa-lock me-2"></i>Segurança de Acesso
+                            </h6>
+                            <div class="form-floating">
+                                <input type="password" name="senha" class="form-control border-0 bg-light" id="fPass" placeholder="Password" required minlength="5">
+                                <label for="fPass">Definir Password Inicial</label>
                             </div>
                         </div>
                     </div>
-                    <div class="modal-footer bg-light">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-primary px-4 shadow-sm">Confirmar Registo</button>
+
+                    <div class="modal-footer border-0 bg-light p-3" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-link text-muted text-decoration-none fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary px-5 py-2 rounded-pill shadow-sm fw-bold">
+                            <i class="fa-solid fa-check-double me-2"></i>Finalizar Registo
+                        </button>
                     </div>
                 </form>
             </div>
@@ -214,24 +258,16 @@
     {% endif %}
 
     <script>
-        // Pesquisa em tempo real por Nome ou Perfil
         function filterStaff() {
             const input = document.getElementById('staffSearch').value.toLowerCase();
             const cards = document.getElementsByClassName('staff-card-col');
-
             for (let i = 0; i < cards.length; i++) {
                 const name = cards[i].querySelector('.staff-name').innerText.toLowerCase();
                 const category = cards[i].querySelector('.staff-category').innerText.toLowerCase();
-
-                if (name.includes(input) || category.includes(input)) {
-                    cards[i].style.display = "";
-                } else {
-                    cards[i].style.display = "none";
-                }
+                cards[i].style.display = (name.includes(input) || category.includes(input)) ? "" : "none";
             }
         }
 
-        // Cópia de valores para o clipboard
         function copyValue(id) {
             const input = document.getElementById(id);
             navigator.clipboard.writeText(input.value);
@@ -240,7 +276,6 @@
             setTimeout(() => icon.className = 'fa-regular fa-copy', 1500);
         }
 
-        // Alternância de campos condicional no Modal
         function toggleCampos() {
             const cat = document.getElementById('selectCategoria').value;
             document.getElementById('seccaoContratado').classList.toggle('d-none', cat !== 'CONTRATADO');

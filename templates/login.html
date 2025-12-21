@@ -33,14 +33,20 @@
                     <label class="form-label text-muted small fw-bold">NIF</label>
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-id-card text-muted"></i></span>
-                        <input type="text" name="nif" class="form-control border-start-0 ps-0" placeholder="Insira o NIF" required>
+                        <input type="text" name="nif" class="form-control border-start-0 ps-0" 
+                               placeholder="Insira o NIF" required maxlength="9" 
+                               onkeydown="return event.keyCode !== 32"
+                               oninput="this.value = this.value.replace(/\s/g, '')">
                     </div>
                 </div>
                 <div class="mb-4">
                     <label class="form-label text-muted small fw-bold">Palavra-passe</label>
                     <div class="input-group">
                         <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-lock text-muted"></i></span>
-                        <input type="password" name="senha" class="form-control border-start-0 ps-0" placeholder="••••••••" required>
+                        <input type="password" name="senha" class="form-control border-start-0 ps-0" 
+                               placeholder="••••••••" required
+                               onkeydown="return event.keyCode !== 32"
+                               oninput="this.value = this.value.replace(/\s/g, '')">
                     </div>
                 </div>
                 <div class="d-grid">

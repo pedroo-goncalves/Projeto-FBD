@@ -39,11 +39,10 @@ END
 GO
 
 CREATE OR ALTER PROCEDURE sp_inserirPaciente
-    @NIF CHAR(9),
+    @NIF_paciente CHAR(9),
     @data_inscricao DATE,
     @observacoes VARCHAR(250) = NULL,
-    @id_medico_responsavel INT = NULL,
-    @id_paciente INT OUTPUT
+    @NIF_trabalhador CHAR(9) = NULL -- Recebe o NIF que vem do Modal
 AS
 /*
 -- =============================================
@@ -54,29 +53,19 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- VERIFICAÇÕES ORIGINAIS DO BERNARDO
-    IF NOT EXISTS (SELECT 1 FROM SGA_PESSOA WHERE NIF = @NIF)
-        THROW 50002, 'Pessoa nao encontrada.', 1;
+    BEGIN TRANSACTION;
+        -- 1. Cria o Paciente
+        INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
+        VALUES (@NIF_paciente, @data_inscricao, @observacoes, 1);
 
-    IF EXISTS (SELECT 1 FROM SGA_PACIENTE WHERE NIF = @NIF)
-        THROW 50003, 'Paciente ja existe.', 1;
-
-    BEGIN TRY
-        BEGIN TRANSACTION;
-            INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes)
-            VALUES (@NIF, @data_inscricao, @observacoes);
-
-            SET @id_paciente = SCOPE_IDENTITY();
-
-            IF @id_medico_responsavel IS NOT NULL
-                INSERT INTO SGA_VINCULO_CLINICO (id_trabalhador, id_paciente)
-                VALUES (@id_medico_responsavel, @id_paciente);
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW;
-    END CATCH
-END
+        -- 2. Cria o Vínculo Clínico por NIF (Acaba com o erro de FK)
+        IF @NIF_trabalhador IS NOT NULL
+        BEGIN
+            INSERT INTO SGA_VINCULO_CLINICO (NIF_trabalhador, NIF_paciente, tipo_vinculo)
+            VALUES (@NIF_trabalhador, @NIF_paciente, 'Responsável Principal');
+        END
+    COMMIT;
+END;
 GO
 
 CREATE OR ALTER PROCEDURE sp_atualizarObservacoesPaciente
@@ -120,20 +109,20 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- Usamos TRIM para remover espaços acidentais e garantir a comparação
     SELECT 
-        T.id_trabalhador, 
-        T.senha_hash, 
-        T.tipo_perfil, 
-        P.nome 
+        T.id_trabalhador, -- user[0]
+        T.senha_hash,     -- user[1]
+        T.tipo_perfil,    -- user[2]
+        P.nome,           -- user[3]
+        P.NIF             -- user[4] 
     FROM SGA_TRABALHADOR T
     JOIN SGA_PESSOA P ON T.NIF = P.NIF
-    WHERE TRIM(T.NIF) = TRIM(@NIF) AND T.ativo = 1;
+    WHERE T.NIF = @NIF AND T.ativo = 1;
 END
 GO
 
 CREATE OR ALTER PROCEDURE sp_listarMeusPacientes
-    @id_medico INT
+    @nif_medico CHAR(9)
 AS
 
 /*
@@ -146,22 +135,18 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-
     SELECT 
-        P.nome, 
-        P.NIF, 
-        Pac.observacoes, 
-        Pac.data_inscricao
+        P.nome, P.NIF, Pac.observacoes, Pac.data_inscricao, Pac.id_paciente 
     FROM SGA_PACIENTE Pac 
     JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
-    JOIN SGA_VINCULO_CLINICO V ON Pac.id_paciente = V.id_paciente
-    WHERE V.id_trabalhador = @id_medico 
+    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente -- Ligar por NIF
+    WHERE V.NIF_trabalhador = @nif_medico 
     ORDER BY Pac.data_inscricao DESC; 
-END
+END;
 GO
 
 CREATE OR ALTER PROCEDURE sp_listarRelatoriosVinculados
-    @id_trabalhador INT
+    @nif_login CHAR(9) -- Mudado de INT para CHAR(9) para ser consistente com a sessão
 AS
 /*
 -- ==========================================================
@@ -185,8 +170,10 @@ BEGIN
     JOIN SGA_PESSOA P_Paciente ON Pac.NIF = P_Paciente.NIF
     JOIN SGA_TRABALHADOR T_Autor ON R.id_autor = T_Autor.id_trabalhador
     JOIN SGA_PESSOA P_Autor ON T_Autor.NIF = P_Autor.NIF
-    JOIN SGA_VINCULO_CLINICO V ON R.id_paciente = V.id_paciente
-    WHERE V.id_trabalhador = @id_trabalhador 
+    -- CORREÇÃO: A tabela de vínculo agora usa NIF_paciente
+    JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
+    -- CORREÇÃO: Filtrar pelo NIF_trabalhador logado
+    WHERE V.NIF_trabalhador = @nif_login 
     ORDER BY R.data_criacao DESC;
 END
 GO
@@ -386,17 +373,19 @@ AS
 BEGIN
     SET NOCOUNT ON;
     SELECT 
-        P.nome,                                  -- [0]
-        P.email,                                 -- [1]
-        P.telefone,                              -- [2]
-        T.tipo_perfil,                           -- [3]
-        ISNULL(T.cedula_profissional, '-----'),  -- [4]
-        T.id_trabalhador                         -- [5] 
+        P.nome,                  -- [0]
+        P.email,                 -- [1]
+        P.telefone,              -- [2]
+        T.tipo_perfil,           -- [3]
+        ISNULL(T.cedula_profissional, '---'), -- [4]
+        P.NIF,                   -- [5] (Usado para o Modal)
+        T.id_trabalhador         -- [6] (VALOR QUE FALTA: Usado para o Link de Detalhes)
     FROM SGA_TRABALHADOR T
     JOIN SGA_PESSOA P ON T.NIF = P.NIF
     WHERE T.ativo = 1;
 END;
 GO
+
 
 CREATE OR ALTER PROCEDURE sp_ativarFuncionario
     @id_trabalhador INT
@@ -521,9 +510,8 @@ BEGIN
 END;
 GO
 
-
 CREATE OR ALTER PROCEDURE sp_listarPacientesSGA
-    @id_trabalhador INT,
+    @nif_login CHAR(9),
     @perfil VARCHAR(20)
 AS
 /*
@@ -537,20 +525,20 @@ BEGIN
     SET NOCOUNT ON;
     IF @perfil = 'admin'
     BEGIN
-        SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes
+        SELECT Pac.id_paciente, P.nome, P.NIF, P.telefone, P.email, 
+               FORMAT(Pac.data_inscricao, 'dd/MM/yyyy'), Pac.observacoes
         FROM SGA_PACIENTE Pac
-        JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
-        WHERE Pac.ativo = 1 -- Apenas ativos
-        ORDER BY Pess.nome;
+        JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
+        WHERE Pac.ativo = 1;
     END
     ELSE
     BEGIN
-        SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes
+        SELECT Pac.id_paciente, P.nome, P.NIF, P.telefone, P.email, 
+               FORMAT(Pac.data_inscricao, 'dd/MM/yyyy'), Pac.observacoes
         FROM SGA_PACIENTE Pac
-        JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
-        JOIN SGA_VINCULO_CLINICO Vin ON Pac.id_paciente = Vin.id_paciente
-        WHERE Vin.id_trabalhador = @id_trabalhador AND Pac.ativo = 1 -- Apenas ativos
-        ORDER BY Pess.nome;
+        JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
+        INNER JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
+        WHERE V.NIF_trabalhador = @nif_login AND Pac.ativo = 1;
     END
 END;
 GO
@@ -616,7 +604,7 @@ GO
 
 CREATE OR ALTER PROCEDURE sp_obterFichaCompletaPaciente
     @id_paciente INT,
-    @id_trabalhador INT,
+    @nif_trabalhador CHAR(9),
     @perfil VARCHAR(20)
 AS
 /*
@@ -629,18 +617,19 @@ AS
 */
 BEGIN
     SET NOCOUNT ON;
-    -- Validação: Admin vê tudo, o Colaborador vê apenas quem está a seu cargo
+    
+    -- Traduz ID para NIF do paciente para a verificação
+    DECLARE @nif_p CHAR(9) = (SELECT NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente);
+
     IF @perfil <> 'admin' AND NOT EXISTS (
         SELECT 1 FROM SGA_VINCULO_CLINICO 
-        WHERE id_paciente = @id_paciente AND id_trabalhador = @id_trabalhador
+        WHERE NIF_paciente = @nif_p AND NIF_trabalhador = @nif_trabalhador -- Nomes novos
     )
     BEGIN
-        THROW 50005, 'Acesso Negado: Não tem permissão clínica para este paciente.', 1;
+        THROW 50005, 'Acesso Negado: Sem permissão clínica.', 1;
     END
 
-    SELECT 
-        Pac.id_paciente, Pess.nome, Pess.NIF, Pess.data_nascimento, 
-        Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes, Pac.ativo
+    SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.data_nascimento, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes, Pac.ativo
     FROM SGA_PACIENTE Pac
     JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF
     WHERE Pac.id_paciente = @id_paciente;
@@ -665,6 +654,7 @@ BEGIN
 
     IF @perfil_quem_pede <> 'admin'
     BEGIN
+        --
         THROW 50006, 'Acesso Negado: Apenas administradores podem consultar detalhes da equipa.', 1;
     END
 
@@ -675,12 +665,10 @@ BEGIN
         T.tipo_perfil,           -- [3]
         T.cedula_profissional,   -- [4]
         P.NIF,                   -- [5]
-        -- FORMATAMOS AQUI PARA TEXTO:
-        ISNULL(FORMAT(P.data_nascimento, 'dd/MM/yyyy'), '---') AS data_nascimento, -- [6]
+        FORMAT(P.data_nascimento, 'dd/MM/yyyy'), -- [6]
         T.id_trabalhador,        -- [7]
         T.ativo,                 -- [8]
-        -- FORMATAMOS AQUI TAMBÉM:
-        ISNULL(FORMAT(T.data_inicio, 'dd/MM/yyyy'), '---') AS data_inicio,         -- [9]
+        FORMAT(T.data_inicio, 'dd/MM/yyyy'),     -- [9]
         C.contrato_trabalho,     -- [10]
         S.ordem,                 -- [11]
         S.remuneracao            -- [12]
@@ -689,5 +677,334 @@ BEGIN
     LEFT JOIN SGA_CONTRATADO C ON T.id_trabalhador = C.id_trabalhador
     LEFT JOIN SGA_PRESTADOR_SERVICO S ON T.id_trabalhador = S.id_trabalhador
     WHERE T.id_trabalhador = @id_trabalhador_alvo;
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE sp_listarMeusPacientesVinculo
+    @nif_login CHAR(9)
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite listar os pacientes com os quais um dado trabalhador tem um vinculo
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    SELECT 
+        P.id_paciente,    -- [0]
+        Pess.nome,        -- [1]
+        Pess.NIF,         -- [2]
+        Pess.telefone,    -- [3]
+        Pess.email,       -- [4]
+        FORMAT(P.data_inscricao, 'dd/MM/yyyy'), -- [5]
+        P.observacoes     -- [6]
+    FROM SGA_PACIENTE P
+    JOIN SGA_PESSOA Pess ON P.NIF = Pess.NIF
+    INNER JOIN SGA_VINCULO_CLINICO V ON P.NIF = V.NIF_paciente
+    WHERE V.NIF_trabalhador = @nif_login AND P.ativo = 1;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_editarTrabalhador
+    @NIF CHAR(9),
+    @nome VARCHAR(50),
+    @telefone CHAR(9),
+    @email VARCHAR(100),
+    @perfil VARCHAR(20),
+    @cedula CHAR(5) = NULL,
+    @categoria VARCHAR(20), -- 'CONTRATADO' ou 'PRESTADOR'
+    @campo_extra VARCHAR(50) = NULL -- Contrato ou Ordem
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos editar as informações dos trabalhadores
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+            -- 1. Atualiza dados comuns
+            UPDATE SGA_PESSOA SET nome = @nome, telefone = @telefone, email = @email 
+            WHERE NIF = @NIF;
+
+            -- 2. Atualiza dados do trabalhador
+            UPDATE SGA_TRABALHADOR SET tipo_perfil = @perfil, cedula_profissional = @cedula 
+            WHERE NIF = @NIF;
+
+            DECLARE @id_trab INT = (SELECT id_trabalhador FROM SGA_TRABALHADOR WHERE NIF = @NIF);
+
+            -- 3. Atualiza Sub-tabelas
+            IF @categoria = 'CONTRATADO'
+                UPDATE SGA_CONTRATADO SET contrato_trabalho = @campo_extra WHERE id_trabalhador = @id_trab;
+            ELSE
+                UPDATE SGA_PRESTADOR_SERVICO SET ordem = @campo_extra WHERE id_trabalhador = @id_trab;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_editarPaciente
+    @NIF CHAR(9),
+    @nome VARCHAR(50),
+    @telefone CHAR(9),
+    @email VARCHAR(100),
+    @obs VARCHAR(250)
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos editar as informações dos pacientes
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRANSACTION;
+        UPDATE SGA_PESSOA SET nome = @nome, telefone = @telefone, email = @email 
+        WHERE NIF = @NIF; --
+
+        UPDATE SGA_PACIENTE SET observacoes = @obs 
+        WHERE NIF = @NIF; --
+    COMMIT TRANSACTION;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_listarPacientesDeTrabalhador
+    @id_trabalhador INT
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos listar os pacientes de um trabalhador pelo vínculo (detalhes)
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @nif_trab CHAR(9) = (SELECT NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador);
+
+    SELECT 
+        P.id_paciente, 
+        Pe.nome, 
+        V.tipo_vinculo,
+        FORMAT(V.data_inicio, 'dd/MM/yyyy') as desde
+    FROM SGA_VINCULO_CLINICO V
+    JOIN SGA_PACIENTE P ON V.NIF_paciente = P.NIF
+    JOIN SGA_PESSOA Pe ON P.NIF = Pe.NIF
+    WHERE V.NIF_trabalhador = @nif_trab AND P.ativo = 1;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_listarTrabalhadoresDePaciente
+    @id_paciente INT
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos listar os trabalhadores de um paciente pelo vínculo (detalhes)
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @nif_pac CHAR(9) = (SELECT NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente);
+
+    SELECT 
+        T.id_trabalhador, 
+        Pe.nome, 
+        T.tipo_perfil,
+        V.tipo_vinculo
+    FROM SGA_VINCULO_CLINICO V
+    JOIN SGA_TRABALHADOR T ON V.NIF_trabalhador = T.NIF
+    JOIN SGA_PESSOA Pe ON T.NIF = Pe.NIF
+    WHERE V.NIF_paciente = @nif_pac AND T.ativo = 1;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_listarProcessosClinicosAtivos
+    @id_trabalhador_sessao INT,
+    @perfil VARCHAR(20)
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos listar os relatórios do trabalhador com login no sistema
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        Pac.id_paciente, 
+        P_Pess.nome AS nome_paciente,
+        MAX(R.data_criacao) AS ultima_atividade,
+        COUNT(R.id) AS total_paragrafos
+    FROM SGA_VINCULO_CLINICO V
+    JOIN SGA_PACIENTE Pac ON V.NIF_paciente = Pac.NIF
+    JOIN SGA_PESSOA P_Pess ON Pac.NIF = P_Pess.NIF
+    LEFT JOIN SGA_RELATORIO R ON Pac.id_paciente = R.id_paciente AND R.id_autor = @id_trabalhador_sessao
+    JOIN SGA_TRABALHADOR T ON T.id_trabalhador = @id_trabalhador_sessao 
+    
+    WHERE V.NIF_trabalhador = T.NIF 
+      AND (Pac.ativo = 1 OR @perfil = 'admin') -- Garante o filtro de desativação
+      
+    GROUP BY Pac.id_paciente, P_Pess.nome
+    ORDER BY ultima_atividade DESC;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE sp_salvarRelatorioClinico
+    @id_relatorio INT = NULL,
+    @id_paciente INT,
+    @id_autor INT,
+    @conteudo VARCHAR(MAX),
+    @tipo VARCHAR(50)
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos salvar o relatório clínico depois de ser alterado
+-- ==========================================================
+*/
+BEGIN
+    IF EXISTS (SELECT 1 FROM SGA_RELATORIO WHERE id = @id_relatorio AND id_autor = @id_autor)
+    BEGIN
+        UPDATE SGA_RELATORIO SET conteudo = @conteudo, tipo_relatorio = @tipo WHERE id = @id_relatorio;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO SGA_RELATORIO (id_paciente, id_autor, conteudo, tipo_relatorio)
+        VALUES (@id_paciente, @id_autor, @conteudo, @tipo);
+    END
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE sp_obterLivrariaRelatorios
+    @id_paciente INT,
+    @id_autor INT
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos aceder aos "detalhes" do relatório do paciente
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    SELECT 
+        id, 
+        tipo_relatorio, 
+        FORMAT(data_criacao, 'dd/MM/yyyy HH:mm') as data_formatada, 
+        conteudo 
+    FROM SGA_RELATORIO
+    WHERE id_paciente = @id_paciente AND id_autor = @id_autor
+    ORDER BY data_criacao DESC; -- Os mais recentes aparecem primeiro no acordeão
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE sp_eliminarPacientePermanente
+    @id_paciente INT
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos elminar permanentemente os pacientes desativados, displayed nos arquivos e destruição de todos os seus vinculos com trabalhadores
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+    
+    IF EXISTS (SELECT 1 FROM SGA_PACIENTE WHERE id_paciente = @id_paciente AND ativo = 1)
+    BEGIN
+        RAISERROR('Erro: Não é possível eliminar um paciente ativo. Desative-o primeiro.', 16, 1);
+        RETURN;
+    END
+
+    DECLARE @nif_p CHAR(9) = (SELECT NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente);
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+            -- A. Limpar histórico clínico (parágrafos)
+            DELETE FROM SGA_RELATORIO WHERE id_paciente = @id_paciente;
+
+            -- B. Limpar todos os vínculos com médicos
+            DELETE FROM SGA_VINCULO_CLINICO WHERE NIF_paciente = @nif_p;
+
+            -- C. Eliminar registo do paciente
+            DELETE FROM SGA_PACIENTE WHERE id_paciente = @id_paciente;
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        THROW;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE sp_eliminarTrabalhadorPermanente
+    @id_trabalhador INT
+AS
+/*
+-- ==========================================================
+-- Autor:       Pedro Gonçalves
+-- Create Date: 18/12/2025
+-- Descrição:   Permite-nos eliminar os trabalhadores de forma permanente, na aba dos arquivos e destruição de todos os seus vínculos com pacientes.
+-- ==========================================================
+*/
+BEGIN
+    SET NOCOUNT ON;
+
+    -- 1. Verificação de Segurança
+    IF EXISTS (SELECT 1 FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador AND ativo = 1)
+    BEGIN
+        RAISERROR('Erro: Não é possível eliminar um funcionário ativo.', 16, 1);
+        RETURN;
+    END
+
+    DECLARE @nif_t CHAR(9) = (SELECT NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador);
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+            -- A. Resolver dependência de Relatórios
+            DELETE FROM SGA_RELATORIO WHERE id_autor = @id_trabalhador;
+
+            -- B. NOVA: Resolver dependência de Salas
+            -- Libertamos as salas que estavam atribuídas a este médico (colocando o dono a NULL)
+            UPDATE SGA_SALA SET id_dono = NULL WHERE id_dono = @id_trabalhador;
+
+            -- C. Limpar vínculos clínicos
+            DELETE FROM SGA_VINCULO_CLINICO WHERE NIF_trabalhador = @nif_t;
+
+            -- D. Limpar sub-tabelas (Contratado/Prestador)
+            DELETE FROM SGA_CONTRATADO WHERE id_trabalhador = @id_trabalhador;
+            DELETE FROM SGA_PRESTADOR_SERVICO WHERE id_trabalhador = @id_trabalhador;
+
+            -- E. Eliminar o trabalhador definitivamente
+            DELETE FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+            
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        THROW;
+    END CATCH
 END;
 GO

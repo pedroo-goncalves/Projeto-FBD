@@ -3,17 +3,25 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Meus Pacientes - SGA</title>
+    <title>Os Meus Pacientes - SGA</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .patient-card { transition: all 0.2s; border: none; border-radius: 12px; }
+        .patient-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1) !important; }
+        .contact-link { text-decoration: none; color: inherit; font-size: 0.9rem; }
+        .contact-link:hover { color: #0d6efd; }
+        .badge-perfil { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; }
+    </style>
 </head>
 
 <body class="bg-light">
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">
+                <i class="fa-solid fa-brain me-2"></i>SGA Psicologia
+            </a>
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
@@ -21,14 +29,15 @@
                     <li class="nav-item"><a class="nav-link" href="/equipa">Equipa</a></li>
                     <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
                     <li class="nav-item"><a class="nav-link" href="/relatorios">Relatórios</a></li>
-                    <li class="nav-item ms-lg-3"><a class="nav-link btn btn-sm btn-outline-light px-3"
-                            href="/logout">Sair ({{ nome_user }})</a></li>
+                    <li class="nav-item ms-lg-3">
+                        <a class="nav-link btn btn-sm btn-outline-light px-3" href="/logout">Sair ({{ nome_user }})</a>
+                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -41,146 +50,191 @@
         {% endwith %}
 
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="text-secondary fw-light"><i class="fa-solid fa-users me-2"></i>Meus Pacientes</h3>
-            <button class="btn btn-success shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoPaciente"><i
-                    class="fa-solid fa-user-plus me-2"></i>Novo Paciente</button>
+            <div> 
+                <h3 class="text-secondary fw-bold mb-0"><i class="fa-solid fa-users me-2"></i>Os Meus Pacientes</h3>
+                <div class="mt-1">
+                    {% if session.get('perfil') == 'admin' %}
+                        <span class="badge bg-info text-dark badge-perfil">Acesso de Administrador</span>
+                    {% else %}
+                        <span class="badge bg-secondary badge-perfil">Acesso de Colaborador</span>
+                    {% endif %}
+                </div>
+            </div> 
+            <div class="d-flex gap-2">
+                {% if session.get('perfil') == 'admin' %}
+                    <a href="{{ url_for('pacientes_arquivo') }}" class="btn btn-outline-secondary shadow-sm" title="Arquivo">
+                        <i class="fa-solid fa-box-archive"></i>
+                    </a>
+                    <button class="btn btn-success shadow-sm rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#modalNovoPaciente">
+                        <i class="fa-solid fa-user-plus me-2"></i>Novo Paciente
+                    </button>
+                {% endif %}
+            </div>
         </div>
 
-        <div class="card shadow-sm border-0">
-            <div class="card-body p-4">
-                
-                <div class="row mb-4">
-                    <div class="col-md-6 col-lg-4">
-                        <div class="input-group">
-                            <span class="input-group-text bg-white border-end-0 text-muted">
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </span>
-                            <input type="text" id="searchInput" class="form-control border-start-0 ps-0" 
-                                   placeholder="Pesquisar por nome ou NIF..." onkeyup="filtrarPacientes()">
+        <div class="row mb-4">
+            <div class="col-md-5">
+                <div class="input-group shadow-sm rounded-3 overflow-hidden">
+                    <span class="input-group-text bg-white border-end-0 text-muted">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input type="text" id="patientSearch" class="form-control border-start-0 ps-0" 
+                           placeholder="Pesquisar por nome ou NIF..." onkeyup="filtrarPacientes()">
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4" id="patientContainer">
+            {% for p in pacientes %}
+            <div class="col-md-6 col-lg-4 patient-card-col">
+                <div class="card h-100 shadow-sm patient-card">
+                    <div class="card-body p-4 text-center">
+                        <img src="https://ui-avatars.com/api/?name={{ p[1]|replace(' ', '+') }}&background=e9ecef&color=0d6efd" 
+                             class="rounded-circle mb-3 shadow-sm" width="75">
+                        
+                        <h5 class="fw-bold mb-1">
+                            <a href="{{ url_for('pacientes_detalhes', id_paciente=p[0]) }}" class="text-dark text-decoration-none patient-name">
+                                {{ p[1] }} </a>
+                        </h5>
+                        
+                        <div class="mb-3">
+                            <span class="badge bg-light text-muted border rounded-pill patient-nif">NIF: {{ p[2] }}</span>
+                        </div>
+
+                        <div class="text-start mb-3 bg-light p-3 rounded-3">
+                            <div class="mb-1">
+                                <i class="fa-solid fa-phone me-2 text-primary"></i>
+                                <a href="tel:{{ p[3] }}" class="contact-link">{{ p[3] }}</a>
+                            </div>
+                            <div class="text-truncate">
+                                <i class="fa-solid fa-envelope me-2 text-primary"></i>
+                                <a href="mailto:{{ p[4] }}" class="contact-link">{{ p[4] or 'N/A' }}</a>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                            <small class="text-muted">Desde: {{ p[5] }}</small>
+                            {% if session.get('perfil') == 'admin' %}
+                            <a href="{{ url_for('remover_paciente', id_paciente=p[0]) }}" 
+                               class="btn btn-sm btn-link text-danger p-0" 
+                               onclick="return confirm('Desativar paciente {{ p[1] }}?')">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </a>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
-
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0" id="pacientesTable">
-                        <thead class="table-light">
-                            <tr>
-                                <th class="ps-3">Nome / Observações</th>
-                                <th>NIF</th>
-                                <th>Contactos</th>
-                                <th>Data Inscrição</th>
-                                <th class="text-end pe-3">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for p in pacientes %}
-                            <tr>
-                                <td class="ps-3">
-                                    <div class="fw-bold text-dark">{{ p[1] }}</div>
-                                    <small class="text-muted text-truncate d-inline-block" style="max-width: 200px;">
-                                        {{ p[6] or 'Sem observações iniciais.' }}
-                                    </small>
-                                </td>
-                                <td><span class="badge bg-light text-dark border">{{ p[2] }}</span></td>
-                                <td>
-                                    <div class="small"><i class="fa-solid fa-phone me-2 text-muted"></i>{{ p[3] }}</div>
-                                    <div class="small"><i class="fa-solid fa-envelope me-2 text-muted"></i>{{ p[4] or '---' }}</div>
-                                </td>
-                                <td>{{ p[5].strftime('%d/%m/%Y') }}</td>
-                                <td class="text-end pe-3">
-                                    <td class="text-end pe-3">
-                                        <div class="btn-group" role="group">
-                                            <a href="{{ url_for('pacientes_detalhes', id_paciente=p[0]) }}" 
-                                            class="btn btn-sm btn-outline-primary" 
-                                            title="Ver Detalhes">
-                                                <i class="fa-solid fa-eye"></i>
-                                            </a>
-                                            
-                                            {% if session.get('perfil') == 'admin' %}
-                                            <a href="{{ url_for('remover_paciente', id_paciente=p[0]) }}" 
-                                            class="btn btn-sm btn-outline-danger" 
-                                            title="Desativar Paciente"
-                                            onclick="return confirm('Deseja desativar a ficha de {{ p[1] }}?')">
-                                                <i class="fa-solid fa-user-minus"></i>
-                                            </a>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                </td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="5" class="text-center py-5 text-muted">
-                                    Nenhum paciente ativo encontrado.
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
             </div>
+            {% else %}
+            <div class="col-12 text-center py-5 text-muted">
+                <i class="fa-solid fa-users-slash fa-4x mb-3 opacity-25"></i>
+                <p class="fs-5">Nenhum paciente encontrado para este perfil.</p>
+                <small>Se é um colaborador, verifique se lhe foram atribuídos pacientes.</small>
+            </div>
+            {% endfor %}
         </div>
     </div>
 
     {% if session.get('perfil') == 'admin' %}
-    <div class="modal fade" id="modalNovoPaciente" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content border-0 shadow">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="fa-solid fa-plus me-2"></i>Nova Ficha de Paciente</h5>
+    <div class="modal fade" id="modalNovoPaciente" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white border-0">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-user-plus me-2"></i>Novo Registo Clínico</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body">
-                    <form action="/criar_paciente" method="POST">
-                        <div class="row mb-3">
-                            <div class="col-md-6"><label class="form-label">Nome Completo *</label><input type="text"
-                                    name="nome" class="form-control" required></div>
-                            <div class="col-md-3"><label class="form-label">NIF *</label><input type="text" name="nif"
-                                    class="form-control" maxlength="9" required></div>
-                            <div class="col-md-3"><label class="form-label">Data Nasc. *</label><input type="date"
-                                    name="data_nasc" class="form-control" required></div>
+
+                <form action="/criar_paciente" method="POST" id="formNovoPaciente">
+                    <div class="modal-body p-4">
+                        <h6 class="text-primary fw-bold small text-uppercase mb-3">Dados de Identificação</h6>
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <div class="form-floating">
+                                    <input type="text" name="nome" class="form-control" id="fNome" placeholder="Nome" required>
+                                    <label for="fNome">Nome Completo</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-floating">
+                                    <input type="text" name="nif" class="form-control" id="fNif" maxlength="9" required>
+                                    <label for="fNif">NIF</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-floating">
+                                    <input type="date" name="data_nasc" class="form-control" id="fData" required>
+                                    <label for="fData">Data Nasc.</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-floating">
+                                    <input type="email" name="email" class="form-control" id="fEmail" required>
+                                    <label for="fEmail">Email</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-floating">
+                                    <input type="tel" name="telefone" class="form-control" id="fTel" maxlength="9" required>
+                                    <label for="fTel">Telefone</label>
+                                </div>
+                            </div>
                         </div>
-                        <div class="row mb-3">
-                            <div class="col-md-6"><label class="form-label">Email *</label><input type="email"
-                                    name="email" class="form-control" required></div>
-                            <div class="col-md-6"><label class="form-label">Telefone *</label><input type="tel"
-                                    name="telefone" class="form-control" maxlength="9" required></div>
+
+                        <h6 class="text-primary fw-bold small text-uppercase mb-3">Atribuição & Notas</h6>
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <div class="form-floating">
+                                    <select name="id_medico" id="medico_responsavel" class="form-select" required>
+                                        <option value="" disabled selected>Escolha o profissional...</option>
+                                        {% for m in trabalhadores %}
+                                            <option value="{{ m[5] }}">{{ m[0] }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label for="medico_responsavel">Trabalhador Responsável</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-floating">
+                                    <textarea name="observacoes" class="form-control" id="fObs" style="height: 100px"></textarea>
+                                    <label for="fObs">Observações Iniciais</label>
+                                </div>
+                            </div>
                         </div>
-                        <div class="mb-3"><label class="form-label">Observações Iniciais</label><textarea
-                                name="observacoes" class="form-control" rows="3"></textarea></div>
-                        <div class="text-end"><button type="submit" class="btn btn-success">Confirmar Registo</button>
-                        </div>
-                    </form>
-                </div>
+                    </div>
+                    <div class="modal-footer bg-light border-0">
+                        <button type="button" class="btn btn-link text-muted" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary px-4 rounded-pill">Gravar Ficha</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
     {% endif %}
 
-    
-
     <script>
         function filtrarPacientes() {
-            let input = document.getElementById("searchInput");
-            let filter = input.value.toLowerCase();
-            let tr = document.getElementById("pacientesTable").getElementsByTagName("tr");
-
-            for (let i = 1; i < tr.length; i++) {
-                let tdNome = tr[i].getElementsByTagName("td")[0];
-                let tdNif = tr[i].getElementsByTagName("td")[1];
-                if (tdNome || tdNif) {
-                    let txtNome = tdNome.textContent || tdNome.innerText;
-                    let txtNif = tdNif.textContent || tdNif.innerText;
-                    if (txtNome.toLowerCase().indexOf(filter) > -1 || txtNif.toLowerCase().indexOf(filter) > -1) {
-                        tr[i].style.display = "";
-                    } else {
-                        tr[i].style.display = "none";
-                    }
-                }
+            let input = document.getElementById("patientSearch").value.toLowerCase();
+            let cards = document.getElementsByClassName("patient-card-col");
+            for (let card of cards) {
+                let nome = card.querySelector(".patient-name").textContent.toLowerCase();
+                let nif = card.querySelector(".patient-nif").textContent.toLowerCase();
+                card.style.display = (nome.includes(input) || nif.includes(input)) ? "" : "none";
             }
+        }
+
+        // Script de confirmação de associação
+        const form = document.getElementById('formNovoPaciente');
+        if (form) {
+            form.onsubmit = function(e) {
+                const paciente = this.nome.value;
+                const select = document.getElementById('medico_responsavel');
+                const medico = select.options[select.selectedIndex].text;
+                if (!confirm(`Deseja criar o paciente ${paciente} e associá-lo a ${medico}?`)) {
+                    e.preventDefault();
+                }
+            };
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-
 </html>

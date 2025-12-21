@@ -42,32 +42,24 @@ def login():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            
-            # Chama a Stored Procedure para obter os dados do trabalhador
             cursor.execute("EXEC sp_obterLogin ?", (nif,))
             user = cursor.fetchone()
             conn.close()
 
+            # user[0]=ID, user[1]=Hash, user[2]=Perfil, user[3]=Nome, user[4]=NIF (Adicionar à SP)
             if user and hash_introduzido == user[1]:
-                # 1. Transforma a senha digitada em Hash SHA256 (igual ao SQL)
-                hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
-                
-                # 2. Compara o hash gerado com o hash que está na BD
-                if hash_introduzido == user[1]:
-                    session['user_id'] = user[0]
-                    session['user_name'] = user[3]
-                    session['perfil'] = user[2]
-                    return redirect(url_for('dashboard'))
-                else:
-                    flash('Credenciais inválidas.', 'danger')
+                # IMPORTANTE: Vamos guardar o NIF na sessão para as Procedures de vínculo
+                # Precisas que a sp_obterLogin devolva o NIF como 5º campo (user[4])
+                session['user_id'] = nif  # Agora a 'user_id' guarda o NIF!
+                session['user_id_interno'] = user[0] # Guardamos o ID numérico para a Agenda
+                session['user_name'] = user[3]
+                session['perfil'] = user[2]
+                return redirect(url_for('dashboard'))
             else:
                 flash('Credenciais inválidas.', 'danger')
-
         except Exception as e:
             flash(f'Erro de sistema: {e}', 'danger')
-
     return render_template('login.html')
-
 # ------------------------------------------------------------------
 # ROTA 2: LOGOUT
 # ------------------------------------------------------------------
@@ -99,54 +91,34 @@ def aceitar_pedido(id_pedido):
 # ------------------------------------------------------------------
 @app.route('/pacientes')
 def pacientes():
-    if not is_logged_in(): return redirect(url_for('login'))
+    if 'user_id' not in session: return redirect(url_for('login'))
     
+    nif_user = session.get('user_id')  # O NIF de quem está logado
+    perfil = session.get('perfil')     # 'admin' ou 'colaborador'
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Nova SP de listagem com filtro de perfil
-        cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (session['user_id'], session['perfil']))
-        lista = cursor.fetchall()
+        
+        # 1. LISTA DE PACIENTES: A SP decide o que mostrar com base no perfil
+        cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (nif_user, perfil))
+        lista_pacientes = cursor.fetchall()
+        
+        # 2. LISTA DE EQUIPA: Para o Modal de atribuição
+        cursor.execute("EXEC sp_listarEquipa")
+        lista_trabalhadores = cursor.fetchall()
+        
         conn.close()
-        return render_template('pacientes.html', pacientes=lista, nome_user=session.get('user_name'))
+        
+        return render_template('pacientes.html', 
+                               pacientes=lista_pacientes, 
+                               trabalhadores=lista_trabalhadores, 
+                               nome_user=session.get('user_name'))
+                               
     except Exception as e:
-        flash(f"Erro ao listar: {e}", "danger")
+        flash(f"Erro ao carregar dados: {e}", "danger")
         return redirect(url_for('dashboard'))
 
-@app.route('/pacientes/adicionar', methods=['POST'])
-def adicionar_paciente():
-    # Apenas Admin
-    if session.get('perfil') != 'admin':
-        flash("Acesso negado.", "danger")
-        return redirect(url_for('pacientes'))
-
-    # Dados do formulário
-    nif = request.form.get('nif')
-    nome = request.form.get('nome')
-    data_nasc = request.form.get('data_nasc')
-    tel = request.form.get('telefone')
-    email = request.form.get('email')
-    obs = request.form.get('observacoes')
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # 1. Upsert da Pessoa (SP do Bernardo)
-        cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", (nif, nome, data_nasc, tel, email))
-        
-        # 2. Inserir Paciente (SP do Bernardo)
-        # Nota: O parâmetro OUTPUT @id_paciente é ignorado aqui por simplicidade
-        cursor.execute("DECLARE @id_out INT; EXEC sp_inserirPaciente @NIF=?, @data_inscricao=?, @observacoes=?, @id_paciente=@id_out OUTPUT", 
-                       (nif, datetime.now().date(), obs))
-        
-        conn.commit()
-        conn.close()
-        flash("Paciente registado com sucesso!", "success")
-    except Exception as e:
-        flash(f"Erro ao registar: {e}", "danger")
-
-    return redirect(url_for('pacientes'))
 
 @app.route('/admin/remover_paciente/<int:id_paciente>')
 def remover_paciente(id_paciente):
@@ -209,49 +181,52 @@ def ativar_paciente(id_paciente):
 # ------------------------------------------------------------------
 @app.route('/criar_paciente', methods=['POST'])
 def criar_paciente():
-    if not is_logged_in(): return redirect(url_for('login'))
-
-    nome = request.form.get('nome')
     nif = request.form.get('nif')
+    nome = request.form.get('nome')
     data_nasc = request.form.get('data_nasc')
     email = request.form.get('email')
     telefone = request.form.get('telefone')
     observacoes = request.form.get('observacoes')
-    
-    id_medico = session['user_id']
-    data_hoje = datetime.now().strftime('%Y-%m-%d')
+    nif_medico = request.form.get('id_medico') # No HTML, isto agora é o NIF
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Executa as SPs de escrita definidas no SQL
-        cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", (nif, nome, data_nasc, telefone, email))
-        cursor.execute("EXEC sp_inserirPaciente ?, ?, ?, ?", (nif, data_hoje, observacoes, id_medico))
+        
+        # 1. Cria ou Atualiza a Pessoa
+        cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", 
+                       (nif, nome, data_nasc, telefone, email))
+        
+        # 2. Cria o Paciente e o Vínculo por NIF
+        cursor.execute("EXEC sp_inserirPaciente ?, ?, ?, ?", 
+                       (nif, datetime.now().date(), observacoes, nif_medico))
         
         conn.commit()
         conn.close()
-        flash('Paciente registado com sucesso!', 'success')
+        flash("Paciente registado e associado com sucesso!", "success")
     except Exception as e:
-        flash(f'Erro ao gravar: {e}', 'danger')
-    
+        flash(f"Erro ao criar: {e}", "danger")
+        
     return redirect(url_for('pacientes'))
 
 @app.route('/pacientes/detalhes/<int:id_paciente>')
 def pacientes_detalhes(id_paciente):
     if 'user_id' not in session: return redirect(url_for('login'))
-    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Validação dupla: quem pede e que perfil tem
-        cursor.execute("EXEC sp_obterFichaCompletaPaciente ?, ?, ?", 
-                       (id_paciente, session['user_id'], session['perfil']))
+        # 1. Dados do Paciente
+        cursor.execute("EXEC sp_obterFichaCompletaPaciente ?, ?, ?", (id_paciente, session['user_id'], session['perfil']))
         detalhes = cursor.fetchone()
+
+        # 2. LISTA DE EQUIPA RESPONSÁVEL (NOVO)
+        cursor.execute("EXEC sp_listarTrabalhadoresDePaciente ?", (id_paciente,))
+        equipa_vinculada = cursor.fetchall()
+
         conn.close()
-        
-        return render_template('pacientes_detalhes.html', p=detalhes, nome_user=session['user_name'])
+        return render_template('pacientes_detalhes.html', p=detalhes, equipa=equipa_vinculada, nome_user=session['user_name'])
     except Exception as e:
-        flash(f"Erro de Acesso: {e}", "danger")
+        flash(f"Erro: {e}", "danger")
         return redirect(url_for('pacientes'))
 
 # --- ROTA PARA ATUALIZAR OBSERVAÇÕES (POST DO MODAL) ---
@@ -274,27 +249,90 @@ def atualizar_obs_paciente():
         flash(f"Erro ao atualizar: {e}", "danger")
 
     return redirect(url_for('pacientes_detalhes', id_paciente=id_p))
-# ------------------------------------------------------------------
-# ROTA 5: RELATÓRIOS
-# ------------------------------------------------------------------
-@app.route('/relatorios')
-def relatorios():
-    if not is_logged_in(): return redirect(url_for('login'))
+
+@app.route('/pacientes/eliminar/<int:id_paciente>', methods=['POST'])
+def eliminar_paciente(id_paciente):
+    if session.get('perfil') != 'admin': return redirect(url_for('dashboard'))
     
-    lista_relatorios = []
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarRelatoriosVinculados ?", (session['user_id'],))
-        lista_relatorios = cursor.fetchall()
+        cursor.execute("EXEC sp_eliminarPacientePermanente ?", (id_paciente,))
+        conn.commit()
         conn.close()
+        flash("Paciente e dados associados eliminados com sucesso.", "success")
     except Exception as e:
-        flash(f'Erro ao carregar relatórios: {e}', 'warning')
+        flash(f"{e}", "danger")
+    
+    # REDIRECIONAMENTO CORRETO para o nome da função que tens na linha 144
+    return redirect(url_for('pacientes_arquivo'))
+# ------------------------------------------------------------------
+# ROTA 5: RELATÓRIOS
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# ROTAS DE RELATÓRIOS (SISTEMA DE LIVRARIA CLÍNICA)
+# ------------------------------------------------------------------
 
-    return render_template('relatorios.html', 
-                           relatorios=lista_relatorios, 
-                           nome_user=session.get('user_name'))
+@app.route('/relatorios')
+def relatorios():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # CORREÇÃO: Usar o nome da Procedure certa e passar os 2 argumentos que ela pede
+        # Se a sp_listarProcessosClinicosAtivos pede um INT, usa user_id_interno
+        cursor.execute("EXEC sp_listarProcessosClinicosAtivos ?, ?", 
+                       (session['user_id_interno'], session['perfil']))
+        
+        lista = cursor.fetchall()
+        conn.close()
+        return render_template('relatorios.html', relatorios=lista, nome_user=session['user_name'])
+    except Exception as e:
+        # Se der erro, ele imprime no terminal para conseguires depurar
+        print(f"Erro na rota relatorios: {e}")
+        flash(f"Erro ao carregar processos: {e}", "danger")
+        return redirect(url_for('dashboard'))
 
+@app.route('/relatorios/detalhes/<int:id_paciente>')
+def detalhes_relatorio_unificado(id_paciente):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Busca o nome do paciente para o cabeçalho (SQL Puro)
+    cursor.execute("SELECT Pe.nome FROM SGA_PACIENTE Pa JOIN SGA_PESSOA Pe ON Pa.NIF = Pe.NIF WHERE Pa.id_paciente = ?", (id_paciente,))
+    res = cursor.fetchone()
+    nome_p = res[0] if res else "Paciente"
+
+    # Carrega a livraria de capítulos
+    cursor.execute("EXEC sp_obterLivrariaRelatorios ?, ?", (id_paciente, session['user_id_interno']))
+    notas = cursor.fetchall()
+    conn.close()
+    return render_template('relatorio_detalhes.html', paciente_id=id_paciente, nome_p=nome_p, notas=notas, nome_user=session['user_name'])
+
+@app.route('/relatorios/salvar', methods=['POST'])
+def salvar_relatorio():
+    # Se id_relatorio estiver vazio no formulário, o SQL faz INSERT automático
+    id_rel = request.form.get('id_relatorio')
+    id_pac = request.form.get('id_paciente')
+    tipo = request.form.get('tipo')
+    conteudo = request.form.get('conteudo')
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_salvarRelatorioClinico ?, ?, ?, ?, ?", 
+                       (id_rel if id_rel else None, id_pac, session['user_id_interno'], conteudo, tipo))
+        conn.commit()
+        conn.close()
+        flash("Processo clínico atualizado.", "success")
+    except Exception as e:
+        flash(f"Erro ao gravar: {e}", "danger")
+
+    # REDIRECIONAMENTO: Mantém o médico na livraria do paciente
+    return redirect(url_for('detalhes_relatorio_unificado', id_paciente=id_pac))
 
 # ------------------------------------------------------------------
 # OUTRAS ROTAS (EQUIPA E AGENDA)
@@ -318,6 +356,23 @@ def equipa():
                            equipa=lista_equipa, 
                            nome_user=session.get('user_name'),
                            now_date=datetime.now().strftime('%Y-%m-%d'))
+
+@app.route('/equipa/eliminar/<int:id_trabalhador>', methods=['POST'])
+def eliminar_trabalhador(id_trabalhador):
+    if session.get('perfil') != 'admin': return redirect(url_for('dashboard'))
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_eliminarTrabalhadorPermanente ?", (id_trabalhador,))
+        conn.commit()
+        conn.close()
+        flash("Funcionário removido permanentemente.", "success")
+    except Exception as e:
+        flash(f"{e}", "danger")
+    
+    # REDIRECIONAMENTO CORRETO para o nome da função que tens na linha 311
+    return redirect(url_for('equipa_arquivo'))
 
 @app.route('/admin/criar_funcionario', methods=['POST'])
 def criar_funcionario():
@@ -422,28 +477,22 @@ def ativar_funcionario(id_trabalhador):
 @app.route('/equipa/detalhes/<int:id_trabalhador>')
 def equipa_detalhes(id_trabalhador):
     if 'user_id' not in session: return redirect(url_for('login'))
-    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # O SQL decide se entrega os dados com base no perfil
+        # 1. Dados do Trabalhador
         cursor.execute("EXEC sp_obterDetalhesTrabalhador ?, ?", (id_trabalhador, session['perfil']))
         trabalhador = cursor.fetchone()
-        conn.close()
         
-        return render_template('equipa_detalhes.html', t=trabalhador, nome_user=session['user_name'])
+        # 2. LISTA DE PACIENTES (NOVO)
+        cursor.execute("EXEC sp_listarPacientesDeTrabalhador ?", (id_trabalhador,))
+        pacientes_vinculados = cursor.fetchall()
+        
+        conn.close()
+        return render_template('equipa_detalhes.html', t=trabalhador, pacientes=pacientes_vinculados, nome_user=session['user_name'])
     except Exception as e:
-        flash(f"Acesso Negado: {e}", "danger")
+        flash(f"Erro: {e}", "danger")
         return redirect(url_for('equipa'))
-
-    return render_template('equipa_detalhes.html', 
-                           t=trabalhador, 
-                           nome_user=session.get('user_name'))
-
-
-
-
-
 
 
 
@@ -507,6 +556,47 @@ def dashboard():
     return render_template('dashboard.html',
                            nome_user=session.get('user_name'),
                            total_pacientes=total_p, total_pedidos=total_pendentes, consultas=consultas_hoje)
+
+@app.route('/admin/editar_trabalhador_post', methods=['POST'])
+def editar_trabalhador_post():
+    if session.get('perfil') != 'admin': return redirect(url_for('equipa'))
+    
+    nif = request.form.get('nif')
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_editarTrabalhador ?, ?, ?, ?, ?, ?, ?, ?", 
+            (nif, request.form.get('nome'), request.form.get('telefone'),
+             request.form.get('email'), request.form.get('perfil'),
+             request.form.get('cedula'), request.form.get('categoria'),
+             request.form.get('campo_extra')))
+        conn.commit()
+        conn.close()
+        flash("Dados do funcionário atualizados!", "success")
+    except Exception as e:
+        flash(f"Erro ao editar: {e}", "danger")
+    
+    # Retorna para os detalhes do trabalhador editado
+    return redirect(request.referrer)
+
+@app.route('/admin/editar_paciente_post', methods=['POST'])
+def editar_paciente_post():
+    if session.get('perfil') != 'admin': return redirect(url_for('pacientes'))
+    
+    nif = request.form.get('nif')
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_editarPaciente ?, ?, ?, ?, ?", 
+            (nif, request.form.get('nome'), request.form.get('telefone'),
+             request.form.get('email'), request.form.get('observacoes')))
+        conn.commit()
+        conn.close()
+        flash("Ficha do paciente atualizada!", "success")
+    except Exception as e:
+        flash(f"Erro ao editar: {e}", "danger")
+    
+    return redirect(request.referrer)
 
 if __name__ == '__main__':
     app.run(debug=True)

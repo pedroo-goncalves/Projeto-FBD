@@ -3,76 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arquivo de Pacientes - SGA Psicologia</title>
+    <title>Arquivo Clínico - SGA Psicologia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Estilo SGA - Arquivo de Pacientes */
+        .archive-header { 
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%); 
+            color: white; 
+            padding: 40px 0; 
+            border-radius: 0 0 25px 25px; 
+            margin-bottom: 30px; 
+        }
+        .sga-card { 
+            border: none; 
+            border-radius: 15px; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.06); 
+            overflow: hidden; 
+        }
+        .table thead th { 
+            background-color: #f8f9fa; 
+            color: #6c757d; 
+            font-size: 0.75rem; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            border-top: none; 
+            padding: 15px 20px; 
+        }
+        .patient-avatar { 
+            width: 40px; 
+            height: 40px; 
+            background: #e9ecef; 
+            color: #6c757d; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            border-radius: 10px; 
+            font-weight: bold; 
+        }
+        .btn-restore, .btn-delete-final { 
+            border-radius: 20px; 
+            padding: 6px 18px; 
+            font-weight: 600; 
+            font-size: 0.8rem; 
+            transition: 0.3s; 
+            border: none;
+        }
+        .btn-restore:hover, .btn-delete-final:hover { 
+            transform: scale(1.05); 
+        }
+        .btn-delete-final {
+            background-color: #fff5f5;
+            color: #e03131;
+            border: 1px solid #ffc9c9;
+        }
+        .btn-delete-final:hover {
+            background-color: #fa5252;
+            color: white;
+            box-shadow: 0 4px 10px rgba(250, 82, 82, 0.2);
+        }
+        .nif-badge {
+            font-family: 'Courier New', monospace;
+            background-color: #f1f3f5;
+            color: #495057;
+            border: 1px solid #dee2e6;
+            padding: 4px 8px;
+            border-radius: 5px;
+            font-size: 0.85rem;
+        }
+    </style>
 </head>
 <body class="bg-light">
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-secondary shadow-sm mb-4">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="{{ url_for('pacientes') }}">
-                <i class="fa-solid fa-box-archive me-2"></i>Arquivo Clínico
-            </a>
-            <div class="ms-auto">
-                <a href="{{ url_for('pacientes') }}" class="btn btn-sm btn-outline-light px-3">
-                    <i class="fa-solid fa-arrow-left me-2"></i>Sair do Arquivo
-                </a>
+    <div class="archive-header shadow-sm">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="fw-bold mb-1">
+                    <i class="fa-solid fa-box-archive me-3"></i>Arquivo Clínico
+                </h2>
+                <p class="mb-0 opacity-75 small text-uppercase letter-spacing-1">Histórico de Pacientes Desativados</p>
             </div>
+            <a href="{{ url_for('pacientes') }}" class="btn btn-outline-light rounded-pill px-4 btn-sm">
+                <i class="fa-solid fa-arrow-left me-2"></i>Sair do Arquivo
+            </a>
         </div>
-    </nav>
+    </div>
 
-    <div class="container">
+    <div class="container pb-5">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm rounded-4" role="alert">
+                        <i class="fa-solid fa-circle-info me-2"></i> {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
 
-        <div class="mb-4">
-            <h3 class="text-secondary fw-light">Pacientes Desativados</h3>
-            <p class="text-muted small">Estes pacientes não aparecem nas agendas nem nas listas de trabalho atuais.</p>
+        <div class="row mb-4">
+            <div class="col-md-5">
+                <div class="input-group shadow-sm">
+                    <span class="input-group-text bg-white border-end-0 text-muted">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input type="text" id="searchPatient" class="form-control border-start-0 ps-0" 
+                           placeholder="Pesquisar por nome ou NIF no arquivo..." onkeyup="filterPatients()">
+                </div>
+            </div>
         </div>
 
-        <div class="card shadow-sm border-0">
+        <div class="card sga-card">
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="table-dark">
+                    <table class="table table-hover align-middle mb-0" id="tablePatients">
+                        <thead>
                             <tr>
-                                <th class="ps-4">Nome</th>
+                                <th class="ps-4">Paciente</th>
                                 <th>NIF</th>
                                 <th>Telemóvel</th>
-                                <th>Data Inscrição</th>
-                                <th class="text-end pe-4">Ação</th>
+                                <th>Inscrito em</th>
+                                <th class="text-end pe-4">Ações Disponíveis</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for p in pacientes %}
                             <tr>
-                                <td class="ps-4 fw-bold">{{ p[1] }}</td>
-                                <td><span class="badge bg-light text-dark border">{{ p[2] }}</span></td>
-                                <td>{{ p[3] }}</td>
-                                <td>{{ p[4].strftime('%d/%m/%Y') }}</td>
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center">
+                                        <div class="patient-avatar me-3">
+                                            {{ p[1][:1] }}
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold text-dark">{{ p[1] }}</div>
+                                            <div class="text-muted small">ID Paciente #{{ p[0] }}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <code class="nif-badge">{{ p[2] }}</code>
+                                </td>
+                                <td>
+                                    <div class="small">
+                                        <i class="fa-solid fa-phone me-2 text-muted opacity-50"></i>{{ p[3] }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="small text-muted">
+                                        <i class="fa-solid fa-calendar-day me-2 opacity-50"></i>
+                                        {{ p[4].strftime('%d/%m/%Y') if p[4] else 'N/A' }}
+                                    </div>
+                                </td>
                                 <td class="text-end pe-4">
-                                    <a href="{{ url_for('ativar_paciente', id_paciente=p[0]) }}" 
-                                       class="btn btn-sm btn-success shadow-sm"
-                                       onclick="return confirm('Deseja restaurar a ficha clínica de {{ p[1] }}?')">
-                                        <i class="fa-solid fa-trash-arrow-up me-2"></i>Recuperar
-                                    </a>
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <a href="{{ url_for('ativar_paciente', id_paciente=p[0]) }}" 
+                                           class="btn btn-success btn-restore shadow-sm"
+                                           onclick="return confirm('Deseja restaurar a ficha clínica de {{ p[1] }}?')">
+                                            <i class="fa-solid fa-trash-arrow-up me-2"></i>Recuperar
+                                        </a>
+
+                                        {% if session.get('perfil') == 'admin' %}
+                                        <form action="{{ url_for('eliminar_paciente', id_paciente=p[0]) }}" method="POST" 
+                                              onsubmit="return confirm('ATENÇÃO CRÍTICA: Esta ação é definitiva. Todos os relatórios clínicos e vínculos de {{ p[1] }} serão apagados para sempre. Deseja continuar?')">
+                                            <button type="submit" class="btn btn-delete-final shadow-sm">
+                                                <i class="fa-solid fa-circle-xmark me-2"></i>Eliminar
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center py-5 text-muted">
-                                    <i class="fa-solid fa-folder-open d-block fa-3x mb-3 text-secondary-emphasis"></i>
-                                    O arquivo está vazio. Não existem pacientes desativados.
+                                <td colspan="5" class="text-center py-5">
+                                    <div class="py-4">
+                                        <i class="fa-solid fa-folder-open fa-3x text-light mb-3"></i>
+                                        <h5 class="text-muted fw-light">O arquivo clínico está vazio.</h5>
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -83,8 +191,18 @@
         </div>
     </div>
 
-    
+    <script>
+        function filterPatients() {
+            let input = document.getElementById("searchPatient");
+            let filter = input.value.toLowerCase();
+            let rows = document.getElementById("tablePatients").getElementsByTagName("tr");
 
+            for (let i = 1; i < rows.length; i++) {
+                let text = rows[i].textContent.toLowerCase();
+                rows[i].style.display = text.includes(filter) ? "" : "none";
+            }
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
