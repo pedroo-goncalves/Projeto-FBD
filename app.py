@@ -1,65 +1,79 @@
 import os
 import hashlib
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from dotenv import load_dotenv
 
-# Importação da conexão confisgurada no teu projeto
+# --- IMPORTS DA CAMADA DE PERSISTÊNCIA ---
 from persistence.session import get_db_connection 
-
-# Imports dos pacientes
-from persistence.pacientes import contar_pacientes
-
-# Imports dos pedidos
+from persistence.pacientes import contar_pacientes, criar_paciente_via_agenda
 from persistence.pedidos import contar_pedidos_pendentes
-
-# Imports dos atendimentos
-from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres
-
-# Imports dos trabalhadores
-from persistence.trabalhadores import medicos_agenda_dropdown
+from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres, listar_eventos_calendario, obter_detalhes_atendimento, editar_agendamento, cancelar_agendamento
+from persistence.salas import contar_salas_livres
+from persistence.trabalhadores import medicos_agenda_dropdown, obter_dados_login
+from persistence.dashboard import obter_totais_dashboard, listar_proximas_consultas
 
 load_dotenv()
 
 app = Flask(__name__)
-# A secret_key permite o funcionamento das mensagens flash e sessões
 app.secret_key = os.getenv('SECRET_KEY')
 
+# ==============================================================================
+# DECORATORS (Segurança e Modularidade)
+# ==============================================================================
 
-def is_logged_in():
-    return 'user_id' in session
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Por favor, inicie sessão para aceder.', 'warning')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
-# ------------------------------------------------------------------
-# ROTA 1: LOGIN (Validação SHA256 Pura)
-# ------------------------------------------------------------------
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        if session.get('perfil') != 'admin':
+            flash('Acesso negado. Apenas administradores.', 'danger')
+            return redirect(request.referrer or url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# ==============================================================================
+# AUTENTICAÇÃO
+# ==============================================================================
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         nif = request.form.get('nif')
         senha = request.form.get('senha')
-        
-        hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("EXEC sp_obterLogin ?", (nif,))
-            user = cursor.fetchone()
-            conn.close()
 
-            # user[0]=ID, user[1]=Hash, user[2]=Perfil, user[3]=Nome, user[4]=NIF (Adicionar à SP)
-            if user and hash_introduzido == user[1]:
-                # IMPORTANTE: Vamos guardar o NIF na sessão para as Procedures de vínculo
-                # Precisas que a sp_obterLogin devolva o NIF como 5º campo (user[4])
-                session['user_id'] = nif  # Agora a 'user_id' guarda o NIF!
-                session['user_id_interno'] = user[0] # Guardamos o ID numérico para a Agenda
-                session['user_name'] = user[3]
+        if not nif or not senha:
+            flash('Preencha todos os campos.', 'warning')
+            return render_template('login.html')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        user = obter_dados_login(cursor, nif)
+        conn.close()
+
+        if user:
+            hash_introduzido = hashlib.sha256(senha.encode()).hexdigest()
+            if hash_introduzido == user[1]:
+                session['user_id'] = user[0]
                 session['perfil'] = user[2]
+                session['user_name'] = user[3]
                 return redirect(url_for('dashboard'))
-            else:
-                flash('Credenciais inválidas.', 'danger')
-        except Exception as e:
-            flash(f'Erro de sistema: {e}', 'danger')
+
+        flash('NIF ou palavra-passe incorretos.', 'danger')
+
     return render_template('login.html')
+
 # ------------------------------------------------------------------
 # ROTA 2: LOGOUT
 # ------------------------------------------------------------------
@@ -68,28 +82,44 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-@app.route('/aceitar_pedido/<int:id_pedido>')
-def aceitar_pedido(id_pedido):
-    if 'user_id' not in session: return redirect(url_for('login'))
+# ==============================================================================
+# DASHBOARD E LISTAGENS PRINCIPAIS
+# ==============================================================================
+
+@app.route('/')
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    conn = get_db_connection()
+    cursor = conn.cursor()
     
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # A SP trata de tudo: Aceita o pedido e cria o vínculo clínico
-        cursor.execute("EXEC sp_aceitarPedido ?, ?", (id_pedido, session['user_id']))
-        
-        conn.commit()
-        conn.close()
-        flash('Pedido aceite! O paciente foi adicionado à sua lista.', 'success')
-    except Exception as e:
-        flash(f'Erro ao processar pedido: {e}', 'danger')
-        
-    return redirect(url_for('dashboard'))
-# ------------------------------------------------------------------
-# ROTA 3: LISTAR MEUS PACIENTES
-# ------------------------------------------------------------------
+    user_id = session.get('user_id')
+    perfil = session.get('perfil')
+    
+    # --- CORREÇÃO DO NOME (Safety Check) ---
+    # Tenta obter da sessão. Se falhar, vai à BD buscar.
+    nome_user = session.get('nome_user')
+    if not nome_user:
+        # Busca rápida do nome se não estiver em sessão
+        cursor.execute("SELECT nome FROM SGA_PESSOA p JOIN SGA_TRABALHADOR t ON p.NIF = t.NIF WHERE t.id_trabalhador = ?", (user_id,))
+        res = cursor.fetchone()
+        nome_user = res[0] if res else 'Utilizador'
+        # Opcional: Atualizar sessão para a próxima vez ser rápido
+        session['nome_user'] = nome_user
+
+    # Chamadas Modulares (Persistência)
+    totais = obter_totais_dashboard(cursor, user_id, perfil)
+    proximas = listar_proximas_consultas(cursor, user_id, perfil)
+    
+    conn.close()
+    
+    return render_template('dashboard.html', 
+                           totais=totais,
+                           proximas_consultas=proximas,
+                           nome_user=nome_user) # Agora vai sempre preenchido
+
 @app.route('/pacientes')
+@login_required
 def pacientes():
     if 'user_id' not in session: return redirect(url_for('login'))
     
@@ -99,87 +129,149 @@ def pacientes():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # 1. LISTA DE PACIENTES: A SP decide o que mostrar com base no perfil
-        cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (nif_user, perfil))
-        lista_pacientes = cursor.fetchall()
-        
-        # 2. LISTA DE EQUIPA: Para o Modal de atribuição
-        cursor.execute("EXEC sp_listarEquipa")
-        lista_trabalhadores = cursor.fetchall()
-        
+        cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (session['user_id'], session['perfil']))
+        lista = cursor.fetchall()
         conn.close()
-        
-        return render_template('pacientes.html', 
-                               pacientes=lista_pacientes, 
-                               trabalhadores=lista_trabalhadores, 
-                               nome_user=session.get('user_name'))
-                               
+        return render_template('pacientes.html', pacientes=lista, nome_user=session.get('user_name'))
     except Exception as e:
-        flash(f"Erro ao carregar dados: {e}", "danger")
+        flash(f"Erro ao listar: {e}", "danger")
         return redirect(url_for('dashboard'))
 
-
-@app.route('/admin/remover_paciente/<int:id_paciente>')
-def remover_paciente(id_paciente):
-    # Segurança: Apenas admins podem desativar fichas de pacientes
-    if session.get('perfil') != 'admin':
-        flash('Acesso negado.', 'danger')
-        return redirect(url_for('pacientes'))
-
+@app.route('/equipa')
+@login_required
+def equipa():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_desativarPaciente ?", (id_paciente,))
-        conn.commit()
+        cursor.execute("EXEC sp_listarEquipa")
+        lista = cursor.fetchall()
         conn.close()
-        flash('Ficha do paciente desativada com sucesso.', 'success')
     except Exception as e:
-        flash(f'Erro ao desativar paciente: {e}', 'danger')
+        flash(f'Erro ao carregar equipa: {e}', 'danger')
+        lista = []
+    return render_template('equipa.html', equipa=lista, nome_user=session.get('user_name'),
+                           now_date=datetime.now().strftime('%Y-%m-%d'))
 
-    return redirect(url_for('pacientes'))
+# ==============================================================================
+# AGENDA E MARCAÇÕES (ESTAS ERAM AS QUE FALTAVAM!)
+# ==============================================================================
 
-@app.route('/admin/pacientes/arquivo')
-def pacientes_arquivo():
-    if session.get('perfil') != 'admin':
-        return redirect(url_for('pacientes'))
+@app.route('/agenda')
+@login_required
+def agenda():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    lista_medicos = []
+    lista_pacientes = []
+
+    try:
+        # 1. Carregar Médicos (Para o Admin)
+        lista_medicos = medicos_agenda_dropdown(cursor)
+        
+        # 2. Carregar Pacientes
+        cursor.execute("EXEC sp_ListarPacientesParaAgenda ?, ?", (session['user_id'], session['perfil']))
+        rows = cursor.fetchall()
+        lista_pacientes = [{'nif': r[2], 'nome': r[1]} for r in rows]
+
+    except Exception as e:
+        print(f"Erro agenda: {e}")
+    finally:
+        conn.close()
+
+    return render_template('agenda.html', nome_user=session.get('user_name'),
+                           medicos=lista_medicos, pacientes=lista_pacientes)
+
+@app.route('/criar_agendamento', methods=['POST'])
+@login_required
+def criar_agendamento():
+    nif_paciente = request.form.get('nif_paciente')
+    duracao = int(request.form.get('duracao', 60))
     
-    lista_inativos = []
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarPacientesInativos")
-        lista_inativos = cursor.fetchall()
-        conn.close()
-    except Exception as e:
-        flash(f"Erro ao carregar arquivo: {e}", "danger")
+    if session['perfil'] == 'colaborador':
+        id_medico = session['user_id']
+    else:
+        id_medico = request.form.get('id_medico')
 
-    return render_template('pacientes_arquivo.html', 
-                           pacientes=lista_inativos, 
-                           nome_user=session.get('user_name'))
+    data_str = request.form.get('data')
+    hora_str = request.form.get('hora')
+    is_online_raw = request.form.get('is_online')
+    preferencia_online = 1 if is_online_raw else 0
 
-@app.route('/admin/ativar_paciente/<int:id_paciente>')
-def ativar_paciente(id_paciente):
-    if session.get('perfil') != 'admin':
-        return redirect(url_for('pacientes'))
+    if not all([nif_paciente, id_medico, data_str, hora_str]):
+        flash('Preencha todos os campos obrigatórios.', 'warning')
+        return redirect(url_for('agenda'))
 
     try:
+        data_completa = f"{data_str} {hora_str}:00"
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_ativarPaciente ?", (id_paciente,))
+        cursor.execute("EXEC sp_criarAgendamento ?, ?, ?, ?, ?", 
+                       (nif_paciente, id_medico, data_completa, preferencia_online, duracao))
         conn.commit()
         conn.close()
-        flash('Paciente recuperado com sucesso!', 'success')
+        flash('Consulta agendada com sucesso!', 'success')
     except Exception as e:
-        flash(f'Erro ao recuperar: {e}', 'danger')
+        msg = str(e)
+        if "50009" in msg: msg = "Paciente não encontrado."
+        elif "50010" in msg: msg = "Médico ocupado nessa hora."
+        elif "50011" in msg: msg = "Não há salas disponíveis."
+        flash(f'Erro: {msg}', 'danger')
 
-    return redirect(url_for('pacientes_arquivo'))
+    return redirect(url_for('agenda'))
 
+# ==============================================================================
+# DETALHES E RELATÓRIOS (TAMBÉM FALTAVAM)
+# ==============================================================================
 
-# ------------------------------------------------------------------
-# ROTA 4: CRIAR NOVO PACIENTE (Lógica nas SPs)
-# ------------------------------------------------------------------
+@app.route('/pacientes/detalhes/<int:id_paciente>')
+@login_required
+def pacientes_detalhes(id_paciente):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_obterFichaCompletaPaciente ?, ?, ?", 
+                       (id_paciente, session['user_id'], session['perfil']))
+        detalhes = cursor.fetchone()
+        conn.close()
+        return render_template('pacientes_detalhes.html', p=detalhes, nome_user=session['user_name'])
+    except Exception as e:
+        flash(f"Erro de Acesso: {e}", "danger")
+        return redirect(url_for('pacientes'))
+
+@app.route('/equipa/detalhes/<int:id_trabalhador>')
+@login_required
+def equipa_detalhes(id_trabalhador):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_obterDetalhesTrabalhador ?, ?", (id_trabalhador, session['perfil']))
+        trabalhador = cursor.fetchone()
+        conn.close()
+        return render_template('equipa_detalhes.html', t=trabalhador, nome_user=session['user_name'])
+    except Exception as e:
+        flash(f"Acesso Negado: {e}", "danger")
+        return redirect(url_for('equipa'))
+
+@app.route('/relatorios')
+@login_required
+def relatorios():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_listarRelatoriosVinculados ?", (session['user_id'],))
+        lista = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        flash(f'Erro ao carregar relatórios: {e}', 'warning')
+        lista = []
+    return render_template('relatorios.html', relatorios=lista, nome_user=session.get('user_name'))
+
+# ==============================================================================
+# AÇÕES DE PACIENTES E EQUIPA (CRIAR, EDITAR, ARQUIVAR)
+# ==============================================================================
+
 @app.route('/criar_paciente', methods=['POST'])
+@login_required
 def criar_paciente():
     nif = request.form.get('nif')
     nome = request.form.get('nome')
@@ -231,23 +323,19 @@ def pacientes_detalhes(id_paciente):
 
 # --- ROTA PARA ATUALIZAR OBSERVAÇÕES (POST DO MODAL) ---
 @app.route('/pacientes/atualizar_obs', methods=['POST'])
+@login_required
 def atualizar_obs_paciente():
-    if 'user_id' not in session: return redirect(url_for('login'))
-
     id_p = request.form.get('id_paciente')
     novas_obs = request.form.get('novas_obs')
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Usa a SP original do Bernardo
         cursor.execute("EXEC sp_atualizarObservacoesPaciente @id=?, @obs=?", (id_p, novas_obs))
         conn.commit()
         conn.close()
-        flash("Observações clínicas atualizadas com sucesso!", "success")
+        flash("Observações atualizadas!", "success")
     except Exception as e:
         flash(f"Erro ao atualizar: {e}", "danger")
-
     return redirect(url_for('pacientes_detalhes', id_paciente=id_p))
 
 @app.route('/pacientes/eliminar/<int:id_paciente>', methods=['POST'])
@@ -266,9 +354,7 @@ def eliminar_paciente(id_paciente):
     
     # REDIRECIONAMENTO CORRETO para o nome da função que tens na linha 144
     return redirect(url_for('pacientes_arquivo'))
-# ------------------------------------------------------------------
-# ROTA 5: RELATÓRIOS
-# ------------------------------------------------------------------
+
 # ------------------------------------------------------------------
 # ROTAS DE RELATÓRIOS (SISTEMA DE LIVRARIA CLÍNICA)
 # ------------------------------------------------------------------
@@ -334,28 +420,24 @@ def salvar_relatorio():
     # REDIRECIONAMENTO: Mantém o médico na livraria do paciente
     return redirect(url_for('detalhes_relatorio_unificado', id_paciente=id_pac))
 
-# ------------------------------------------------------------------
-# OUTRAS ROTAS (EQUIPA E AGENDA)
-# ------------------------------------------------------------------
-@app.route('/equipa')
-def equipa():
-    if not is_logged_in(): return redirect(url_for('login'))
+# --- ROTAS DE ADMIN ---
+
+@app.route('/equipa/eliminar/<int:id_trabalhador>', methods=['POST'])
+def eliminar_trabalhador(id_trabalhador):
+    if session.get('perfil') != 'admin': return redirect(url_for('dashboard'))
     
-    lista_equipa = []
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Garante que a procedure devolve 6 colunas (id no index 5)
-        cursor.execute("EXEC sp_listarEquipa")
-        lista_equipa = cursor.fetchall()
+        cursor.execute("EXEC sp_eliminarTrabalhadorPermanente ?", (id_trabalhador,))
+        conn.commit()
         conn.close()
+        flash("Funcionário removido permanentemente.", "success")
     except Exception as e:
-        flash(f'Erro ao carregar equipa: {e}', 'danger')
-
-    return render_template('equipa.html', 
-                           equipa=lista_equipa, 
-                           nome_user=session.get('user_name'),
-                           now_date=datetime.now().strftime('%Y-%m-%d'))
+        flash(f"{e}", "danger")
+    
+    # REDIRECIONAMENTO CORRETO para o nome da função que tens na linha 311
+    return redirect(url_for('equipa_arquivo'))
 
 @app.route('/equipa/eliminar/<int:id_trabalhador>', methods=['POST'])
 def eliminar_trabalhador(id_trabalhador):
@@ -375,57 +457,36 @@ def eliminar_trabalhador(id_trabalhador):
     return redirect(url_for('equipa_arquivo'))
 
 @app.route('/admin/criar_funcionario', methods=['POST'])
+@admin_required
 def criar_funcionario():
-    if session.get('perfil') != 'admin':
-        flash('Acesso negado.', 'danger')
-        return redirect(url_for('equipa'))
-
-    # 1. Recolha de Dados com Validação Python
     nif = request.form.get('nif', '').strip()
-    telemovel = request.form.get('telemovel', '').strip()
-    nome = request.form.get('nome', '').strip()
-    email = request.form.get('email', '').strip()
-    data_nasc = request.form.get('data_nasc')
-    perfil = request.form.get('perfil')
-    senha = request.form.get('senha')
-
-    # Validação de Segurança (Backend)
     if len(nif) != 9 or not nif.isdigit():
-        flash('NIF inválido: deve ter 9 dígitos.', 'danger')
+        flash('NIF inválido.', 'danger')
         return redirect(url_for('equipa'))
 
-    # 2. Tratamento de Campos Opcionais (Evita Erro 8114)
-    cedula = request.form.get('cedula') or None
-    categoria = request.form.get('categoria')
-    contrato_tipo = request.form.get('contrato_tipo') or None
-    ordem = request.form.get('ordem') or None
-    
+    hash_pw = hashlib.sha256(request.form.get('senha').encode()).hexdigest()
     remuneracao = request.form.get('remuneracao')
-    remuneracao = float(remuneracao) if remuneracao and remuneracao.strip() != "" else None
-
-    # 3. Hash da Password e Execução
-    hash_pw = hashlib.sha256(senha.encode()).hexdigest()
+    remuneracao = float(remuneracao) if remuneracao and remuneracao.strip() else None
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("EXEC sp_criarFuncionario ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?", 
-                       (nif, nome, data_nasc, telemovel, email, hash_pw, perfil, cedula, 
-                        categoria, contrato_tipo, ordem, remuneracao))
+                       (nif, request.form.get('nome'), request.form.get('data_nasc'), 
+                        request.form.get('telemovel'), request.form.get('email'), 
+                        hash_pw, request.form.get('perfil'), request.form.get('cedula') or None, 
+                        request.form.get('categoria'), request.form.get('contrato_tipo') or None, 
+                        request.form.get('ordem') or None, remuneracao))
         conn.commit()
         conn.close()
-        flash(f'Profissional {nome} registado!', 'success')
+        flash('Profissional registado!', 'success')
     except Exception as e:
-        flash(f'Erro na Base de Dados: {e}', 'danger')
-
+        flash(f'Erro na BD: {e}', 'danger')
     return redirect(url_for('equipa'))
 
 @app.route('/admin/remover_funcionario/<int:id_trabalhador>')
+@admin_required
 def remover_funcionario(id_trabalhador):
-    if session.get('perfil') != 'admin':
-        flash('Acesso negado.', 'danger')
-        return redirect(url_for('equipa'))
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -435,48 +496,53 @@ def remover_funcionario(id_trabalhador):
         flash('Acesso desativado.', 'success')
     except Exception as e:
         flash(f'Erro ao desativar: {e}', 'danger')
-
     return redirect(url_for('equipa'))
 
-@app.route('/admin/equipa/arquivo')
-def equipa_arquivo():
-    if session.get('perfil') != 'admin':
-        return redirect(url_for('equipa'))
-    
-    lista_inativos = []
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarEquipaInativa")
-        lista_inativos = cursor.fetchall()
-        conn.close()
-    except Exception as e:
-        flash(f"Erro ao carregar arquivo da equipa: {e}", "danger")
-
-    return render_template('equipa_arquivo.html', 
-                           equipa=lista_inativos, 
-                           nome_user=session.get('user_name'))
-
 @app.route('/admin/ativar_funcionario/<int:id_trabalhador>')
+@admin_required
 def ativar_funcionario(id_trabalhador):
-    if session.get('perfil') != 'admin':
-        return redirect(url_for('equipa'))
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("EXEC sp_ativarFuncionario ?", (id_trabalhador,))
         conn.commit()
         conn.close()
-        flash('Acesso do funcionário reativado com sucesso!', 'success')
+        flash('Funcionário reativado.', 'success')
     except Exception as e:
-        flash(f'Erro ao reativar: {e}', 'danger')
-
+        flash(f'Erro: {e}', 'danger')
     return redirect(url_for('equipa_arquivo'))
 
-@app.route('/equipa/detalhes/<int:id_trabalhador>')
-def equipa_detalhes(id_trabalhador):
-    if 'user_id' not in session: return redirect(url_for('login'))
+@app.route('/admin/equipa/arquivo')
+@admin_required
+def equipa_arquivo():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_listarEquipaInativa")
+        lista = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        flash(f"Erro: {e}", "danger")
+        lista = []
+    return render_template('equipa_arquivo.html', equipa=lista, nome_user=session.get('user_name'))
+
+@app.route('/admin/remover_paciente/<int:id_paciente>')
+@admin_required
+def remover_paciente(id_paciente):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_desativarPaciente ?", (id_paciente,))
+        conn.commit()
+        conn.close()
+        flash('Paciente desativado.', 'success')
+    except Exception as e:
+        flash(f'Erro: {e}', 'danger')
+    return redirect(url_for('pacientes'))
+
+@app.route('/admin/ativar_paciente/<int:id_paciente>')
+@admin_required
+def ativar_paciente(id_paciente):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -495,67 +561,169 @@ def equipa_detalhes(id_trabalhador):
         return redirect(url_for('equipa'))
 
 
+# ==============================================================================
+# API JSON
+# ==============================================================================
 
-@app.route('/agenda')
-def agenda():
-    if not is_logged_in(): return redirect(url_for('login'))
+@app.route('/api/eventos')
+@login_required
+def api_eventos():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Ler filtros do URL
+    filtro_medico = request.args.get('filtro_medico')
+    filtro_paciente_nif = request.args.get('filtro_paciente')
+    
+    # Passar para a persistência
+    rows = listar_eventos_calendario(
+        cursor, 
+        session['user_id'], 
+        session.get('perfil'),
+        filtro_medico_id=filtro_medico,
+        filtro_paciente_nif=filtro_paciente_nif
+    )
+    conn.close()
+    
+
+    eventos = []
+    for row in rows:
+        titulo = row[1]
+        if session.get('perfil') == 'admin':
+            titulo = f"[{row[5]}] {row[1]}"
+
+        eventos.append({
+            'id': row[0],
+            'num_atendimento': row[0], # Redundância segura
+            'title': titulo,
+            'start': row[2].isoformat(),
+            'end': row[3].isoformat(),
+            'color': '#198754' if row[4] == 'finalizado' else ('#dc3545' if row[4] == 'falta' else '#0d6efd')
+        })
+        
+    return jsonify(eventos)
+
+@app.route('/api/criar_paciente_rapido', methods=['POST'])
+@login_required
+def criar_paciente_rapido():
+    data = request.json 
+    nif, nome, telemovel, data_nasc = data.get('nif'), data.get('nome'), data.get('telemovel'), data.get('data_nasc')
+    
+    if not all([nif, nome, telemovel, data_nasc]):
+        return jsonify({'erro': 'Preencha todos os campos.'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        lista_medicos = medicos_agenda_dropdown(cursor)
+        new_id = criar_paciente_via_agenda(cursor, nif, nome, telemovel, data_nasc)
+        conn.commit()
+        return jsonify({'sucesso': True, 'id': new_id, 'nif': nif, 'nome': nome})
     except Exception as e:
-        print(f"erro: {e}")
-        lista_medicos = []
-
-
-    return render_template('agenda.html', nome_user=session.get('user_name'),
-                           medicos=lista_medicos)
-
-from flask import jsonify, request # Importante adicionar jsonify e request
+        conn.rollback()
+        msg = str(e)
+        if "50003" in msg or "PRIMARY KEY" in msg:
+             return jsonify({'erro': 'Já existe um paciente com este NIF.'}), 400
+        return jsonify({'erro': f'Erro técnico: {msg}'}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/horarios-disponiveis')
 def api_horarios():
-    # O JavaScript vai enviar ?medico=1&data=2025-12-20
     id_medico = request.args.get('medico')
     data = request.args.get('data')
+    is_online_raw = request.args.get('is_online')
+    is_online = 1 if is_online_raw == '1' else 0
+    duracao = request.args.get('duracao', 60, type=int)
+    
+    # Novo parâmetro (pode ser None ou vazio)
+    ignorar_id = request.args.get('ignorar_id', type=int)
 
-    if not id_medico or not data:
-        return jsonify([]) # Retorna lista vazia se faltar dados
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    slots = obter_horarios_livres(cursor, id_medico, data)
-    conn.close()
-
-    return jsonify(slots) # O Python transforma a lista em JSON para o JS ler
-
-@app.route('/')
-@app.route('/dashboard')
-def dashboard():
-    if not is_logged_in(): return redirect(url_for('login'))
+    if not id_medico or not data: return jsonify([])
 
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    try: 
-        total_p = contar_pacientes(cursor)
-        total_pendentes = contar_pedidos_pendentes(cursor)
-        consultas_hoje = contar_atendimentos_hoje(cursor)
-
+    try:
+        # Passa o ignorar_id para a persistência
+        slots = obter_horarios_livres(cursor, id_medico, data, is_online, duracao, ignorar_id)
     except Exception as e:
-        print(f"Erro: {e}")
-        total_p = 0
-        total_pendentes = 0
-        consultas_hoje = {'total': 0, 'online': 0, 'presencial': 0}
+        print(f"Erro api horarios: {e}")
+        slots = []
     finally:
-        cursor.close()
         conn.close()
+    return jsonify(slots)
 
-    return render_template('dashboard.html',
-                           nome_user=session.get('user_name'),
-                           total_pacientes=total_p, total_pedidos=total_pendentes, consultas=consultas_hoje)
+@app.route('/api/atendimento/<int:id_atendimento>')
+@login_required
+def api_detalhes_atendimento(id_atendimento):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    detalhes = obter_detalhes_atendimento(cursor, id_atendimento)
+    conn.close()
+    
+    if detalhes:
+        # Converter datas para string ISO para o JS ler
+        detalhes['inicio_iso'] = detalhes['inicio'].strftime('%Y-%m-%dT%H:%M')
+        detalhes['data_iso'] = detalhes['inicio'].strftime('%Y-%m-%d')
+        detalhes['hora_iso'] = detalhes['inicio'].strftime('%H:%M')
+        return jsonify(detalhes)
+    return jsonify({'erro': 'Não encontrado'}), 404
+
+@app.route('/editar_agendamento', methods=['POST'])
+@login_required
+def rota_editar_agendamento():
+    id_atendimento = request.form.get('id_atendimento')
+    data_str = request.form.get('data')
+    hora_str = request.form.get('hora')
+    duracao = int(request.form.get('duracao'))
+    
+    try:
+        data_completa = f"{data_str} {hora_str}:00"
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        editar_agendamento(cursor, id_atendimento, data_completa, duracao)
+        conn.commit()
+        conn.close()
+        flash('Agendamento atualizado com sucesso!', 'success')
+    except Exception as e:
+        flash(f'Erro ao atualizar: {e}', 'danger')
+        
+    return redirect(url_for('agenda'))
+
+@app.route('/cancelar_agendamento/<int:id_atendimento>')
+@login_required
+def rota_cancelar_agendamento(id_atendimento):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cancelar_agendamento(cursor, id_atendimento)
+        conn.commit()
+        conn.close()
+        flash('Consulta cancelada com sucesso.', 'success')
+    except Exception as e:
+        flash(f'Erro ao cancelar: {e}', 'danger')
+        
+    return redirect(request.referrer or url_for('agenda'))
+
+@app.route('/admin/editar_paciente_post', methods=['POST'])
+def editar_paciente_post():
+    if session.get('perfil') != 'admin': return redirect(url_for('pacientes'))
+    
+    nif = request.form.get('nif')
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC sp_editarPaciente ?, ?, ?, ?, ?", 
+            (nif, request.form.get('nome'), request.form.get('telefone'),
+             request.form.get('email'), request.form.get('observacoes')))
+        conn.commit()
+        conn.close()
+        flash("Ficha do paciente atualizada!", "success")
+    except Exception as e:
+        flash(f"Erro ao editar: {e}", "danger")
+    
+    return redirect(request.referrer)
 
 @app.route('/admin/editar_trabalhador_post', methods=['POST'])
 def editar_trabalhador_post():

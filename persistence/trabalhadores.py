@@ -8,3 +8,12 @@ def medicos_agenda_dropdown(cursor):
     except Exception as e:
         print(f"erro a listar tabalhadores: {e}")
         return []
+
+def obter_dados_login(cursor, nif):
+    """Retorna (id, hash, perfil, nome) ou None"""
+    try:
+        cursor.execute("EXEC sp_obterLogin ?", (nif,))
+        return cursor.fetchone()
+    except Exception as e:
+        print(f"Erro no login DB: {e}")
+        return None
