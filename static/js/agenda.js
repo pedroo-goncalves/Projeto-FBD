@@ -25,6 +25,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const detalheDuracao = document.getElementById('detalheDuracao');
     const detalheHora = document.getElementById('detalheHora');
 
+    // Referências do Registo Rápido (Secção 6)
+    const btnNovoPaciente = document.getElementById('btnNovoPaciente');
+    const formRapido = document.getElementById('formRapidoPaciente');
+    const btnCancelarRapido = document.getElementById('btnCancelarRapido');
+    const btnSalvarRapido = document.getElementById('btnSalvarRapido');
+    const selectPacienteModal = document.getElementById('selectPaciente');
+
     // =========================================================
     // 2. CALENDÁRIO
     // =========================================================
@@ -41,9 +48,7 @@ document.addEventListener('DOMContentLoaded', function () {
             start: new Date()
         },
 
-        // --- CORREÇÃO VISUAL PARA ADMIN ---
-        slotEventOverlap: false, // Isto impede que fiquem uns em cima dos outros
-        // ----------------------------------
+        slotEventOverlap: false,
 
         initialView: 'dayGridMonth',
 
@@ -53,7 +58,6 @@ document.addEventListener('DOMContentLoaded', function () {
             right: 'dayGridMonth,timeGridWeek,timeGridDay'
         },
 
-        // 🔹 torna o texto do dia clicável
         navLinks: true,
 
         slotMinTime: '09:00:00',
@@ -73,33 +77,21 @@ document.addEventListener('DOMContentLoaded', function () {
             })
         },
 
-        // =====================================================
-        // 🔹 CLIQUE NO TEXTO DO DIA (Week / Month)
-        // =====================================================
+        // 🔹 CLIQUE NO TEXTO DO DIA
         navLinkDayClick(date) {
             calendar.changeView('timeGridDay', date);
         },
 
-        // =====================================================
         // 🔹 CLIQUE NAS CÉLULAS
-        // =====================================================
         dateClick(info) {
-
             // MÊS → qualquer clique abre o dia
             if (info.view.type === 'dayGridMonth') {
                 calendar.changeView('timeGridDay', info.dateStr);
                 return;
             }
 
-            // SEMANA → clicar numa hora cria consulta
-            if (info.view.type === 'timeGridWeek') {
-                if (!validarHorarioClique(info.date)) return;
-                abrirModalCriar(info.dateStr);
-                return;
-            }
-
-            // DIA → comportamento normal
-            if (info.view.type === 'timeGridDay') {
+            // SEMANA/DIA → validar e abrir modal
+            if (info.view.type === 'timeGridWeek' || info.view.type === 'timeGridDay') {
                 if (!validarHorarioClique(info.date)) return;
                 abrirModalCriar(info.dateStr);
             }
@@ -117,8 +109,8 @@ document.addEventListener('DOMContentLoaded', function () {
     filtroPaciente?.addEventListener('change', () => calendar.refetchEvents());
 
     btnLimparFiltros?.addEventListener('click', () => {
-        filtroMedico.value = '';
-        filtroPaciente.value = '';
+        if (filtroMedico) filtroMedico.value = '';
+        if (filtroPaciente) filtroPaciente.value = '';
         calendar.refetchEvents();
     });
 
@@ -158,44 +150,38 @@ document.addEventListener('DOMContentLoaded', function () {
             if (horaFinal) selectHora.value = horaFinal;
         });
 
+        // Garantir que o formulário de novo paciente está escondido ao abrir o modal
+        if (formRapido) formRapido.classList.add('d-none');
+
         new bootstrap.Modal(modalAgendamentoEl).show();
     }
 
     async function carregarHorariosCriacao() {
         if (!selectMedico.value || !inputData.value) return;
 
-        // 1. Guardar a hora que estava selecionada antes de limpar
         const horaPreSelecionada = selectHora.value;
 
-        const res = await fetch(
-            `/api/horarios-disponiveis?medico=${selectMedico.value}&data=${inputData.value}&duracao=${selectDuracaoCriar.value}&is_online=${checkOnline.checked ? 1 : 0}`
-        );
+        try {
+            const res = await fetch(
+                `/api/horarios-disponiveis?medico=${selectMedico.value}&data=${inputData.value}&duracao=${selectDuracaoCriar.value}&is_online=${checkOnline.checked ? 1 : 0}`
+            );
+            const horarios = await res.json();
 
-        const horarios = await res.json();
+            selectHora.innerHTML = '<option disabled selected value="">--:--</option>';
 
-        // Limpar e reconstruir
-        selectHora.innerHTML = '<option disabled selected value="">--:--</option>';
-
-        let manteveSelecao = false;
-
-        horarios.forEach(h => {
-            const opt = document.createElement('option');
-            opt.value = h;
-            opt.textContent = h;
-
-            // 2. Se a nova hora for igual à que estava selecionada, volta a marcar
-            if (h === horaPreSelecionada) {
-                opt.selected = true;
-                manteveSelecao = true;
-            }
-
-            selectHora.appendChild(opt);
-        });
-
-        // Se a hora antiga já não é válida (ex: 12:00 cabe para 1h, mas não para 2h por causa do almoço), 
-        // o 'value' fica vazio (o option disabled selected inicial).
-
-        selectHora.disabled = false;
+            horarios.forEach(h => {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = h;
+                if (h === horaPreSelecionada) {
+                    opt.selected = true;
+                }
+                selectHora.appendChild(opt);
+            });
+            selectHora.disabled = false;
+        } catch (e) {
+            console.error("Erro ao carregar horários:", e);
+        }
     }
 
     selectMedico?.addEventListener('change', carregarHorariosCriacao);
@@ -209,38 +195,126 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(`/api/atendimento/${id}`)
             .then(res => res.json())
             .then(data => {
-                detalheId.value = data.id;
+                detalheId.value = data.num_atendimento || data.id; // Tenta num_atendimento primeiro
                 detalhePaciente.value = data.paciente;
                 if (detalheMedico) detalheMedico.value = data.medico;
-                detalheIdMedico.value = data.id_medico;
+                detalheIdMedico.value = data.id_trabalhador || data.id_medico; // Tenta id_trabalhador
                 detalheData.value = data.data_iso;
-                detalheDuracao.value = data.duracao;
+
+                // Calcular duração se não vier da API
+                if (data.duracao) {
+                    detalheDuracao.value = data.duracao;
+                } else if (data.inicio_iso && data.fim_iso) {
+                    // Fallback de cálculo
+                    const start = new Date(data.inicio_iso);
+                    const end = new Date(data.fim_iso);
+                    const diffMins = (end - start) / 60000;
+                    detalheDuracao.value = diffMins.toString();
+                } else {
+                    detalheDuracao.value = "60"; // Default
+                }
 
                 carregarHorariosEdicao(data.hora_iso);
                 new bootstrap.Modal(modalDetalhesEl).show();
-            });
+            })
+            .catch(err => console.error("Erro detalhes:", err));
     }
 
     async function carregarHorariosEdicao(horaAtual = null) {
-        const res = await fetch(
-            `/api/horarios-disponiveis?medico=${detalheIdMedico.value}&data=${detalheData.value}&duracao=${detalheDuracao.value}&ignorar_id=${detalheId.value}`
-        );
+        if (!detalheIdMedico.value) return;
 
-        const horarios = await res.json();
-        detalheHora.innerHTML = '';
+        try {
+            const res = await fetch(
+                `/api/horarios-disponiveis?medico=${detalheIdMedico.value}&data=${detalheData.value}&duracao=${detalheDuracao.value}&ignorar_id=${detalheId.value}`
+            );
+            const horarios = await res.json();
 
-        horarios.forEach(h => {
-            const opt = document.createElement('option');
-            opt.value = h;
-            opt.textContent = h;
-            if (h === horaAtual) opt.selected = true;
-            detalheHora.appendChild(opt);
-        });
-
-        detalheHora.disabled = false;
+            detalheHora.innerHTML = '';
+            horarios.forEach(h => {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = h;
+                if (h === horaAtual) opt.selected = true;
+                detalheHora.appendChild(opt);
+            });
+            detalheHora.disabled = false;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     detalheData?.addEventListener('change', () => carregarHorariosEdicao(detalheHora.value || null));
     detalheDuracao?.addEventListener('change', () => carregarHorariosEdicao(detalheHora.value || null));
+
+
+    // =========================================================
+    // 6. REGISTO RÁPIDO DE PACIENTE (NOVO)
+    // =========================================================
+
+    // 1. Mostrar o formulário ao clicar no botão "+"
+    if (btnNovoPaciente) {
+        btnNovoPaciente.addEventListener('click', () => {
+            formRapido.classList.remove('d-none');
+        });
+    }
+
+    // 2. Esconder o formulário ao clicar em "Cancelar"
+    if (btnCancelarRapido) {
+        btnCancelarRapido.addEventListener('click', () => {
+            formRapido.classList.add('d-none');
+            const msgErro = document.getElementById('msgErroRapido');
+            if (msgErro) msgErro.textContent = '';
+        });
+    }
+
+    // 3. Enviar dados via AJAX ao clicar em "Guardar"
+    if (btnSalvarRapido) {
+        btnSalvarRapido.addEventListener('click', async () => {
+            const nif = document.getElementById('newNif').value;
+            const nome = document.getElementById('newNome').value;
+            const tel = document.getElementById('newTel').value;
+            const data = document.getElementById('newData').value;
+            const msgErro = document.getElementById('msgErroRapido');
+
+            if (!nif || !nome || !tel || !data) {
+                if (msgErro) msgErro.textContent = 'Preencha todos os campos.';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/criar_paciente_rapido', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nif, nome, telemovel: tel, data_nasc: data })
+                });
+
+                const json = await res.json();
+
+                if (res.ok) {
+                    // Sucesso: Adicionar o novo paciente ao dropdown e selecioná-lo
+                    if (selectPacienteModal) {
+                        const opt = document.createElement('option');
+                        opt.value = json.nif; // O valor é o NIF
+                        opt.textContent = `${json.nome} (${json.nif})`;
+                        opt.selected = true;
+                        selectPacienteModal.appendChild(opt);
+                    }
+
+                    // Limpar campos e esconder formulário
+                    formRapido.classList.add('d-none');
+                    document.getElementById('newNif').value = '';
+                    document.getElementById('newNome').value = '';
+                    document.getElementById('newTel').value = '';
+                    document.getElementById('newData').value = '';
+                    if (msgErro) msgErro.textContent = '';
+                } else {
+                    if (msgErro) msgErro.textContent = json.erro || 'Erro ao criar paciente.';
+                }
+            } catch (err) {
+                console.error(err);
+                if (msgErro) msgErro.textContent = 'Erro de comunicação.';
+            }
+        });
+    }
 
 });
