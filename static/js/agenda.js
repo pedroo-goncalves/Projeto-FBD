@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const detalheDuracao = document.getElementById('detalheDuracao');
     const detalheHora = document.getElementById('detalheHora');
 
+    const btnCancelarConsulta = document.getElementById('btnCancelarConsulta');
+
     // Referências do Registo Rápido (Secção 6)
     const btnNovoPaciente = document.getElementById('btnNovoPaciente');
     const formRapido = document.getElementById('formRapidoPaciente');
@@ -105,12 +107,61 @@ document.addEventListener('DOMContentLoaded', function () {
 
     calendar.render();
 
-    filtroMedico?.addEventListener('change', () => calendar.refetchEvents());
+    // =========================================================
+    // ATUALIZAÇÃO DINÂMICA DE FILTROS (ADMIN)
+    // =========================================================
+
+    async function atualizarDropdownPacientes() {
+        if (!filtroPaciente) return;
+
+        const medicoId = filtroMedico ? filtroMedico.value : '';
+        const pacienteSelecionadoAntes = filtroPaciente.value;
+
+        try {
+            // Chama a nova API que criaste no app.py
+            const res = await fetch(`/api/lista_pacientes?medico_id=${medicoId}`);
+            if (!res.ok) throw new Error('Erro ao buscar pacientes');
+
+            const pacientes = await res.json();
+
+            // Reinicia o dropdown
+            filtroPaciente.innerHTML = '<option value="" selected>Todos os Pacientes</option>';
+
+            pacientes.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.nif;
+                opt.textContent = p.nome;
+
+                // Se o paciente selecionado ainda existir na nova lista, mantém a seleção
+                if (p.nif === pacienteSelecionadoAntes) {
+                    opt.selected = true;
+                }
+
+                filtroPaciente.appendChild(opt);
+            });
+        } catch (err) {
+            console.error("Erro ao atualizar lista de pacientes:", err);
+        }
+    }
+
+    // 1. Quando muda o médico: Atualiza calendário E recarrega a lista de pacientes
+    if (filtroMedico) {
+        filtroMedico.addEventListener('change', () => {
+            calendar.refetchEvents();
+            atualizarDropdownPacientes();
+        });
+    }
+
+    // 2. Quando muda o paciente: Apenas atualiza o calendário
     filtroPaciente?.addEventListener('change', () => calendar.refetchEvents());
 
+    // 3. Botão Limpar: Limpa filtros e repõe a lista completa de pacientes
     btnLimparFiltros?.addEventListener('click', () => {
         if (filtroMedico) filtroMedico.value = '';
-        if (filtroPaciente) filtroPaciente.value = '';
+        if (filtroPaciente) {
+            filtroPaciente.value = '';
+            atualizarDropdownPacientes(); // Volta a mostrar "Todos" se for Admin
+        }
         calendar.refetchEvents();
     });
 
@@ -200,6 +251,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (detalheMedico) detalheMedico.value = data.medico;
                 detalheIdMedico.value = data.id_trabalhador || data.id_medico; // Tenta id_trabalhador
                 detalheData.value = data.data_iso;
+
+                if (btnCancelarConsulta) {
+                    btnCancelarConsulta.href = `/cancelar_agendamento/${data.num_atendimento || data.id}`;
+                }
 
                 // Calcular duração se não vier da API
                 if (data.duracao) {

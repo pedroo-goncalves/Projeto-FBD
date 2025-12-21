@@ -7,12 +7,30 @@ from dotenv import load_dotenv
 
 # --- IMPORTS DA CAMADA DE PERSISTÊNCIA ---
 from persistence.session import get_db_connection 
-from persistence.pacientes import contar_pacientes, criar_paciente_via_agenda
-from persistence.pedidos import contar_pedidos_pendentes
-from persistence.atendimentos import contar_atendimentos_hoje, obter_horarios_livres, listar_eventos_calendario, obter_detalhes_atendimento, editar_agendamento, cancelar_agendamento
-from persistence.salas import contar_salas_livres
-from persistence.trabalhadores import medicos_agenda_dropdown, obter_dados_login
 from persistence.dashboard import obter_totais_dashboard, listar_proximas_consultas
+from persistence.atendimentos import (
+    obter_horarios_livres, listar_eventos_calendario, obter_detalhes_atendimento, 
+    editar_agendamento, cancelar_agendamento
+)
+# NOVOS IMPORTS
+from persistence.pacientes import (
+    contar_pacientes, criar_paciente_via_agenda, 
+    listar_pacientes_geral, listar_pacientes_dropdown_agenda, listar_pacientes_arquivo,
+    criar_paciente_completo, obter_detalhes_paciente, atualizar_observacoes_paciente,
+    eliminar_paciente_fisico, desativar_paciente_logico, ativar_paciente_logico,
+    editar_dados_paciente
+)
+from persistence.trabalhadores import (
+    obter_dados_login, medicos_agenda_dropdown, obter_nome_trabalhador,
+    listar_equipa_ativa, listar_equipa_arquivo, listar_medicos_para_modal_pacientes,
+    obter_perfil_trabalhador, listar_pacientes_do_medico, listar_equipa_do_paciente,
+    criar_novo_funcionario, desativar_trabalhador, ativar_trabalhador, 
+    eliminar_trabalhador_fisico, editar_ficha_trabalhador
+)
+from persistence.relatorios import (
+    listar_relatorios_dashboard, obter_nome_paciente_simples, 
+    carregar_historico_relatorios, guardar_relatorio_clinico
+)
 
 load_dotenv()
 
@@ -58,8 +76,7 @@ def login():
             return render_template('login.html')
 
         conn = get_db_connection()
-        cursor = conn.cursor()
-        user = obter_dados_login(cursor, nif)
+        user = obter_dados_login(conn.cursor(), nif)
         conn.close()
 
         if user:
@@ -68,8 +85,6 @@ def login():
                 session['user_id'] = user[0]
                 session['perfil'] = user[2]
                 session['user_name'] = user[3]
-                # Guardar user_id_interno para lógica de BD se diferente do NIF/ID login
-                # Assumindo que user[0] é o ID interno necessário
                 session['user_id_interno'] = user[0] 
                 return redirect(url_for('dashboard'))
 
@@ -96,15 +111,9 @@ def dashboard():
     user_id = session.get('user_id')
     perfil = session.get('perfil')
     
-    # --- CORREÇÃO DO NOME (Safety Check) ---
-    nome_user = session.get('nome_user') or session.get('user_name')
-    if not nome_user:
-        cursor.execute("SELECT nome FROM SGA_PESSOA p JOIN SGA_TRABALHADOR t ON p.NIF = t.NIF WHERE t.id_trabalhador = ?", (user_id,))
-        res = cursor.fetchone()
-        nome_user = res[0] if res else 'Utilizador'
-        session['user_name'] = nome_user
+    nome_user = session.get('nome_user') or obter_nome_trabalhador(cursor, user_id)
+    session['user_name'] = nome_user
 
-    # Chamadas Modulares (Persistência)
     totais = obter_totais_dashboard(cursor, user_id, perfil)
     proximas = listar_proximas_consultas(cursor, user_id, perfil)
     
@@ -117,18 +126,16 @@ def dashboard():
 
 @app.route('/pacientes')
 @login_required
-
 def pacientes():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (session['user_id'], session['perfil']))
-        lista = cursor.fetchall()
+        
+        # 1. Lista principal (Tuplos)
+        lista = listar_pacientes_geral(cursor, session['user_id'], session['perfil'])
 
-        cursor.execute("EXEC sp_listarMedicosAgenda") # Usa a SP que já lista médicos ativos
-        rows_trabs = cursor.fetchall()
-        # Formatar como dicionário para bater certo com o template (m.id_trabalhador, m.nome)
-        lista_trabalhadores = [{'id_trabalhador': r[0], 'nome': r[1]} for r in rows_trabs]
+        # 2. Lista dropdown (Dicionários com 'id_trabalhador' para o HTML)
+        lista_trabalhadores = listar_medicos_para_modal_pacientes(cursor)
 
         conn.close()
         return render_template('pacientes.html', pacientes=lista, trabalhadores=lista_trabalhadores, nome_user=session.get('user_name'))
@@ -142,8 +149,8 @@ def equipa():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarEquipa")
-        lista = cursor.fetchall()
+        # Lista principal (Tuplos)
+        lista = listar_equipa_ativa(cursor)
         conn.close()
     except Exception as e:
         flash(f'Erro ao carregar equipa: {e}', 'danger')
@@ -164,13 +171,11 @@ def agenda():
     lista_pacientes = []
 
     try:
-        # 1. Carregar Médicos (Para o Admin)
+        # 1. Carregar Médicos (Para o Admin) - usa a função original que devolve 'id'
         lista_medicos = medicos_agenda_dropdown(cursor)
         
-        # 2. Carregar Pacientes
-        cursor.execute("EXEC sp_ListarPacientesParaAgenda ?, ?", (session['user_id'], session['perfil']))
-        rows = cursor.fetchall()
-        lista_pacientes = [{'nif': r[2], 'nome': r[1]} for r in rows]
+        # 2. Carregar Pacientes - usa a nova função que devolve 'nif' e 'nome'
+        lista_pacientes = listar_pacientes_dropdown_agenda(cursor, session['user_id'], session['perfil'])
 
     except Exception as e:
         print(f"Erro agenda: {e}")
@@ -204,6 +209,7 @@ def criar_agendamento():
         data_completa = f"{data_str} {hora_str}:00"
         conn = get_db_connection()
         cursor = conn.cursor()
+        # Aqui podemos manter o EXEC direto ou mover para persistence/atendimentos.py se já lá estiver
         cursor.execute("EXEC sp_criarAgendamento ?, ?, ?, ?, ?", 
                        (nif_paciente, id_medico, data_completa, preferencia_online, duracao))
         conn.commit()
@@ -228,15 +234,9 @@ def equipa_detalhes(id_trabalhador):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_obterDetalhesTrabalhador ?, ?", (id_trabalhador, session['perfil']))
-        trabalhador = cursor.fetchone()
-
-        cursor.execute("EXEC sp_listarPacientesDeTrabalhador ?", (id_trabalhador,))
-        lista_pacientes = cursor.fetchall()
-
-
-
-
+        
+        trabalhador = obter_perfil_trabalhador(cursor, id_trabalhador, session['perfil'])
+        lista_pacientes = listar_pacientes_do_medico(cursor, id_trabalhador)
 
         conn.close()
         return render_template('equipa_detalhes.html', t=trabalhador, pacientes=lista_pacientes, nome_user=session['user_name'])
@@ -251,13 +251,9 @@ def relatorios():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ID Interno do utilizador deve estar na sessão
         user_id_interno = session.get('user_id_interno', session['user_id'])
+        lista = listar_relatorios_dashboard(cursor, user_id_interno, session['perfil'])
         
-        cursor.execute("EXEC sp_listarProcessosClinicosAtivos ?, ?", 
-                       (user_id_interno, session['perfil']))
-        
-        lista = cursor.fetchall()
         conn.close()
         return render_template('relatorios.html', relatorios=lista, nome_user=session.get('user_name'))
     except Exception as e:
@@ -271,15 +267,11 @@ def detalhes_relatorio_unificado(id_paciente):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Busca o nome do paciente para o cabeçalho (SQL Puro)
-    cursor.execute("SELECT Pe.nome FROM SGA_PACIENTE Pa JOIN SGA_PESSOA Pe ON Pa.NIF = Pe.NIF WHERE Pa.id_paciente = ?", (id_paciente,))
-    res = cursor.fetchone()
-    nome_p = res[0] if res else "Paciente"
+    nome_p = obter_nome_paciente_simples(cursor, id_paciente)
 
-    # Carrega a livraria de capítulos
     user_id_interno = session.get('user_id_interno', session['user_id'])
-    cursor.execute("EXEC sp_obterLivrariaRelatorios ?, ?", (id_paciente, user_id_interno))
-    notas = cursor.fetchall()
+    notas = carregar_historico_relatorios(cursor, id_paciente, user_id_interno)
+    
     conn.close()
     return render_template('relatorio_detalhes.html', paciente_id=id_paciente, nome_p=nome_p, notas=notas, nome_user=session.get('user_name'))
 
@@ -295,8 +287,9 @@ def salvar_relatorio():
         user_id_interno = session.get('user_id_interno', session['user_id'])
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_salvarRelatorioClinico ?, ?, ?, ?, ?", 
-                       (id_rel if id_rel else None, id_pac, user_id_interno, conteudo, tipo))
+        
+        guardar_relatorio_clinico(cursor, id_rel if id_rel else None, id_pac, user_id_interno, conteudo, tipo)
+        
         conn.commit()
         conn.close()
         flash("Processo clínico atualizado.", "success")
@@ -318,17 +311,13 @@ def criar_paciente():
     email = request.form.get('email')
     telefone = request.form.get('telefone')
     observacoes = request.form.get('observacoes')
-    nif_medico = request.form.get('id_medico')
+    nif_medico = request.form.get('id_medico') # O HTML manda 'id_medico'
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("EXEC sp_guardarPessoa ?, ?, ?, ?, ?", 
-                       (nif, nome, data_nasc, telefone, email))
-        
-        cursor.execute("EXEC sp_inserirPaciente ?, ?, ?, ?", 
-                       (nif, datetime.now().date(), observacoes, nif_medico))
+        criar_paciente_completo(cursor, nif, nome, data_nasc, telefone, email, observacoes, nif_medico)
         
         conn.commit()
         conn.close()
@@ -338,20 +327,15 @@ def criar_paciente():
         
     return redirect(url_for('pacientes'))
 
-# --- [CORRIGIDO] Rota de Detalhes do Paciente (Versão Única e Completa) ---
 @app.route('/pacientes/detalhes/<int:id_paciente>')
 @login_required
 def pacientes_detalhes(id_paciente):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # 1. Dados do Paciente
-        cursor.execute("EXEC sp_obterFichaCompletaPaciente ?, ?, ?", (id_paciente, session['user_id'], session['perfil']))
-        detalhes = cursor.fetchone()
-
-        # 2. LISTA DE EQUIPA RESPONSÁVEL
-        cursor.execute("EXEC sp_listarTrabalhadoresDePaciente ?", (id_paciente,))
-        equipa_vinculada = cursor.fetchall()
+        
+        detalhes = obter_detalhes_paciente(cursor, id_paciente, session['user_id'], session['perfil'])
+        equipa_vinculada = listar_equipa_do_paciente(cursor, id_paciente)
 
         conn.close()
         return render_template('pacientes_detalhes.html', p=detalhes, equipa=equipa_vinculada, nome_user=session.get('user_name'))
@@ -367,7 +351,7 @@ def atualizar_obs_paciente():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_atualizarObservacoesPaciente @id=?, @obs=?", (id_p, novas_obs))
+        atualizar_observacoes_paciente(cursor, id_p, novas_obs)
         conn.commit()
         conn.close()
         flash("Observações atualizadas!", "success")
@@ -381,25 +365,24 @@ def eliminar_paciente(id_paciente):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_eliminarPacientePermanente ?", (id_paciente,))
+        eliminar_paciente_fisico(cursor, id_paciente)
         conn.commit()
         conn.close()
         flash("Paciente e dados associados eliminados com sucesso.", "success")
     except Exception as e:
         flash(f"{e}", "danger")
     
-    return redirect(url_for('pacientes_arquivo')) # Certifica-te que esta rota existe ou muda para 'pacientes'
+    return redirect(url_for('pacientes_arquivo'))
 
 # --- ROTAS DE ADMIN ---
 
-# --- [CORRIGIDO] Rota Eliminar Trabalhador (Versão Única) ---
 @app.route('/equipa/eliminar/<int:id_trabalhador>', methods=['POST'])
 @admin_required
 def eliminar_trabalhador(id_trabalhador):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_eliminarTrabalhadorPermanente ?", (id_trabalhador,))
+        eliminar_trabalhador_fisico(cursor, id_trabalhador)
         conn.commit()
         conn.close()
         flash("Funcionário removido permanentemente.", "success")
@@ -423,12 +406,11 @@ def criar_funcionario():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_criarFuncionario ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?", 
-                       (nif, request.form.get('nome'), request.form.get('data_nasc'), 
+        criar_novo_funcionario(cursor, nif, request.form.get('nome'), request.form.get('data_nasc'), 
                         request.form.get('telemovel'), request.form.get('email'), 
                         hash_pw, request.form.get('perfil'), request.form.get('cedula') or None, 
                         request.form.get('categoria'), request.form.get('contrato_tipo') or None, 
-                        request.form.get('ordem') or None, remuneracao))
+                        request.form.get('ordem') or None, remuneracao)
         conn.commit()
         conn.close()
         flash('Profissional registado!', 'success')
@@ -442,7 +424,7 @@ def remover_funcionario(id_trabalhador):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_desativarFuncionario ?", (id_trabalhador,))
+        desativar_trabalhador(cursor, id_trabalhador)
         conn.commit()
         conn.close()
         flash('Acesso desativado.', 'success')
@@ -456,7 +438,7 @@ def ativar_funcionario(id_trabalhador):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_ativarFuncionario ?", (id_trabalhador,))
+        ativar_trabalhador(cursor, id_trabalhador)
         conn.commit()
         conn.close()
         flash('Funcionário reativado.', 'success')
@@ -470,8 +452,7 @@ def equipa_arquivo():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_listarEquipaInativa")
-        lista = cursor.fetchall()
+        lista = listar_equipa_arquivo(cursor)
         conn.close()
     except Exception as e:
         flash(f"Erro: {e}", "danger")
@@ -484,7 +465,7 @@ def remover_paciente(id_paciente):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_desativarPaciente ?", (id_paciente,))
+        desativar_paciente_logico(cursor, id_paciente)
         conn.commit()
         conn.close()
         flash('Paciente desativado.', 'success')
@@ -495,12 +476,10 @@ def remover_paciente(id_paciente):
 @app.route('/admin/ativar_paciente/<int:id_paciente>')
 @admin_required
 def ativar_paciente(id_paciente):
-    # Nota: A lógica original aqui parecia estar a usar sp_obterDetalhesTrabalhador erradamente.
-    # Ajustei para reativar o paciente.
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE SGA_PACIENTE SET ativo = 1 WHERE id_paciente = ?", (id_paciente,))
+        ativar_paciente_logico(cursor, id_paciente)
         conn.commit()
         conn.close()
         flash('Paciente reativado.', 'success')
@@ -514,18 +493,15 @@ def pacientes_arquivo():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Chama a Stored Procedure que criaste para listar os inativos
-        cursor.execute("EXEC sp_listarPacientesInativos")
-        lista = cursor.fetchall()
+        lista = listar_pacientes_arquivo(cursor)
         conn.close()
     except Exception as e:
         flash(f"Erro ao carregar arquivo: {e}", "danger")
         lista = []
-    # Rota que faltava para listar pacientes inativos/arquivados
     return render_template('pacientes_arquivo.html', pacientes=lista, nome_user=session.get('user_name'))
 
 # ==============================================================================
-# API JSON
+# API JSON (MANTIDA IGUAL, apenas adaptada importação se necessário)
 # ==============================================================================
 
 @app.route('/api/eventos')
@@ -563,6 +539,39 @@ def api_eventos():
         
     return jsonify(eventos)
 
+@app.route('/api/lista_pacientes')
+@login_required
+def api_lista_pacientes():
+    medico_id = request.args.get('medico_id')
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Lógica:
+        # 1. Se sou Admin e escolhi um médico -> Quero ver os pacientes desse médico (simulo perfil 'medico')
+        # 2. Se sou Admin e não escolhi ninguém -> Quero ver todos (perfil 'admin')
+        # 3. Se sou Médico -> Só vejo os meus (perfil 'medico' e meu ID)
+        
+        target_id = session['user_id']
+        target_perfil = session['perfil']
+
+        if session['perfil'] == 'admin':
+            if medico_id:
+                target_id = medico_id
+                target_perfil = 'medico' # Força o SQL a filtrar
+            else:
+                target_perfil = 'admin' # Mostra tudo
+
+        # Reutilizamos a função de persistência que já tens
+        pacientes = listar_pacientes_dropdown_agenda(cursor, target_id, target_perfil)
+        
+        return jsonify(pacientes)
+    except Exception as e:
+        print(f"Erro API Pacientes: {e}")
+        return jsonify([])
+    finally:
+        conn.close()
+        
 @app.route('/api/criar_paciente_rapido', methods=['POST'])
 @login_required
 def criar_paciente_rapido():
@@ -576,6 +585,7 @@ def criar_paciente_rapido():
     cursor = conn.cursor()
 
     try:
+        # Usa a função existente
         new_id = criar_paciente_via_agenda(cursor, nif, nome, telemovel, data_nasc)
         conn.commit()
         return jsonify({'sucesso': True, 'id': new_id, 'nif': nif, 'nome': nome})
@@ -662,7 +672,6 @@ def rota_cancelar_agendamento(id_atendimento):
         
     return redirect(request.referrer or url_for('agenda'))
 
-# --- [CORRIGIDO] Rota Editar Paciente (Versão Única) ---
 @app.route('/admin/editar_paciente_post', methods=['POST'])
 @admin_required
 def editar_paciente_post():
@@ -670,9 +679,9 @@ def editar_paciente_post():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_editarPaciente ?, ?, ?, ?, ?", 
-            (nif, request.form.get('nome'), request.form.get('telefone'),
-             request.form.get('email'), request.form.get('observacoes')))
+        editar_dados_paciente(cursor, 
+            nif, request.form.get('nome'), request.form.get('telefone'),
+             request.form.get('email'), request.form.get('observacoes'))
         conn.commit()
         conn.close()
         flash("Ficha do paciente atualizada!", "success")
@@ -688,11 +697,11 @@ def editar_trabalhador_post():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("EXEC sp_editarTrabalhador ?, ?, ?, ?, ?, ?, ?, ?", 
-            (nif, request.form.get('nome'), request.form.get('telefone'),
+        editar_ficha_trabalhador(cursor, 
+            nif, request.form.get('nome'), request.form.get('telefone'),
              request.form.get('email'), request.form.get('perfil'),
              request.form.get('cedula'), request.form.get('categoria'),
-             request.form.get('campo_extra')))
+             request.form.get('campo_extra'))
         conn.commit()
         conn.close()
         flash("Dados do funcionário atualizados!", "success")
