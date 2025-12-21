@@ -3,10 +3,6 @@ GO
 SET QUOTED_IDENTIFIER ON;
 GO
 
--- -------------------------------------------------------------------------
--- SPs REFATORADAS COM AS NOVAS UDFs (Mantendo comportamento externo)
--- -------------------------------------------------------------------------
-
 CREATE OR ALTER PROCEDURE sp_ObterHorariosLivres
     @id_medico INT,
     @data_consulta DATE,
