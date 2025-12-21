@@ -124,8 +124,14 @@ def pacientes():
         cursor = conn.cursor()
         cursor.execute("EXEC sp_listarPacientesSGA ?, ?", (session['user_id'], session['perfil']))
         lista = cursor.fetchall()
+
+        cursor.execute("EXEC sp_listarMedicosAgenda") # Usa a SP que já lista médicos ativos
+        rows_trabs = cursor.fetchall()
+        # Formatar como dicionário para bater certo com o template (m.id_trabalhador, m.nome)
+        lista_trabalhadores = [{'id_trabalhador': r[0], 'nome': r[1]} for r in rows_trabs]
+
         conn.close()
-        return render_template('pacientes.html', pacientes=lista, nome_user=session.get('user_name'))
+        return render_template('pacientes.html', pacientes=lista, trabalhadores=lista_trabalhadores, nome_user=session.get('user_name'))
     except Exception as e:
         flash(f"Erro ao listar: {e}", "danger")
         return redirect(url_for('dashboard'))
