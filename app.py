@@ -460,11 +460,12 @@ def api_eventos():
     )
     conn.close()
     
+
     eventos = []
     for row in rows:
         titulo = row[1]
         if session.get('perfil') == 'admin':
-            titulo = f"[{row[5].split()[0]}] {row[1]}"
+            titulo = f"[{row[5]}] {row[1]}"
 
         eventos.append({
             'id': row[0],

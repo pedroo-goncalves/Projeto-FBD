@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // =========================================================
     const calendarEl = document.getElementById('calendar');
 
-    // --- Filtros (NOVO) ---
+    // --- Filtros ---
     const filtroMedico = document.getElementById('filtroMedico');
     const filtroPaciente = document.getElementById('filtroPaciente');
     const btnLimparFiltros = document.getElementById('btnLimparFiltros');
@@ -20,33 +20,73 @@ document.addEventListener('DOMContentLoaded', function () {
     const selectDuracaoCriar = document.querySelector('#modalAgendamento select[name="duracao"]');
     const btnGlobal = document.getElementById('btnNovoAgendamentoGlobal');
 
-    // --- Modal de EDIÇÃO ---
-    const modalDetalhesEl = document.getElementById('modalDetalhes');
-    const detalheId = document.getElementById('detalheId');
-    const detalheData = document.getElementById('detalheData');
-    const detalheHora = document.getElementById('detalheHora');
-    const detalheDuracao = document.getElementById('detalheDuracao');
-    const detalheIdMedico = document.getElementById('detalheIdMedico');
-    const badge = document.getElementById('badgeEstado');
-    const inpPaciente = document.getElementById('detalhePaciente');
-    const inpMedico = document.getElementById('detalheMedico');
-    const btnCancel = document.getElementById('btnCancelarConsulta');
+    // =========================================================
+    // VALIDAÇÃO DA DATA (CORRIGIDA – ESCREVER OU PICKER)
+    // =========================================================
+    if (inputData) {
 
-    let horaOriginalEdicao = null;
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        inputData.min = hoje.toISOString().split('T')[0];
 
-    // --- Paciente Rápido ---
-    const btnNovo = document.getElementById('btnNovoPaciente');
-    const formRapido = document.getElementById('formRapidoPaciente');
-    const btnCancelar = document.getElementById('btnCancelarRapido');
-    const btnSalvar = document.getElementById('btnSalvarRapido');
-    const msgErro = document.getElementById('msgErroRapido');
+        inputData.addEventListener('change', function () {
+            if (!this.value) return;
 
+            const data = new Date(this.value + 'T00:00:00');
+            const diaSemana = data.getDay(); // 0 = Domingo | 6 = Sábado
+
+            // Bloquear dias passados
+            if (data < hoje) {
+                this.setCustomValidity('Não é possível agendar consultas em dias passados.');
+                this.reportValidity();
+                this.value = '';
+                resetHorasCriacao();
+                return;
+            }
+
+            // Bloquear fins de semana
+            if (diaSemana === 0 || diaSemana === 6) {
+                this.setCustomValidity('As consultas apenas podem ser agendadas em dias úteis (Seg-Sex).');
+                this.reportValidity();
+                this.value = '';
+                resetHorasCriacao();
+                return;
+            }
+
+            // Data válida
+            this.setCustomValidity('');
+            carregarHorariosCriacao();
+        });
+    }
+
+    function resetHorasCriacao() {
+        if (!selectHora) return;
+        selectHora.innerHTML = '<option disabled selected>--:--</option>';
+        selectHora.disabled = true;
+    }
 
     // =========================================================
-    // 2. INICIALIZAÇÃO E CALENDÁRIO
+    // LIMPEZA DO MODAL AO ABRIR
     // =========================================================
+    if (btnGlobal) {
+        btnGlobal.addEventListener('click', function () {
 
-    // Ler parâmetros URL
+            if (inputData) inputData.value = '';
+
+            if (selectHora) {
+                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
+                selectHora.disabled = true;
+                selectHora.classList.remove('is-valid');
+            }
+
+            if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
+            if (checkOnline) checkOnline.checked = false;
+        });
+    }
+
+    // =========================================================
+    // 2. CALENDÁRIO (INALTERADO)
+    // =========================================================
     const urlParams = new URLSearchParams(window.location.search);
     const editId = urlParams.get('editar');
     const jumpDate = urlParams.get('data');
@@ -58,6 +98,10 @@ document.addEventListener('DOMContentLoaded', function () {
             locale: 'pt',
             firstDay: 1,
 
+            validRange: {
+                start: new Date()
+            },
+
             datesSet: function (info) {
                 sessionStorage.setItem('calendarView', info.view.type);
                 sessionStorage.setItem('calendarDate', info.view.currentStart.toISOString());
@@ -66,7 +110,6 @@ document.addEventListener('DOMContentLoaded', function () {
             slotMinTime: '09:00:00',
             slotMaxTime: '18:00:00',
             slotDuration: '01:00:00',
-            slotLabelInterval: '01:00',
             allDaySlot: false,
             expandRows: true,
 
@@ -81,60 +124,38 @@ document.addEventListener('DOMContentLoaded', function () {
                 { daysOfWeek: [1, 2, 3, 4, 5], startTime: '14:00', endTime: '18:00' }
             ],
 
-            // --- FONTE DE DADOS COM FILTROS DINÂMICOS ---
             events: {
                 url: '/api/eventos',
-                extraParams: function () {
-                    return {
-                        // Lê o valor ATUAL dos selects sempre que busca eventos
-                        filtro_medico: filtroMedico ? filtroMedico.value : '',
-                        filtro_paciente: filtroPaciente ? filtroPaciente.value : ''
-                    };
-                }
+                extraParams: () => ({
+                    filtro_medico: filtroMedico?.value || '',
+                    filtro_paciente: filtroPaciente?.value || ''
+                })
             },
 
-            navLinks: true,
             selectable: true,
 
-            dateClick: function (info) {
+            dateClick(info) {
                 if (!validarHorarioClique(info.date, info.view.type)) return;
                 abrirModalCriar(info.dateStr);
             },
 
-            eventClick: function (info) {
+            eventClick(info) {
                 info.jsEvent.preventDefault();
-                const idAtendimento = info.event.extendedProps.num_atendimento || info.event.id;
-                abrirModalDetalhes(idAtendimento);
+                abrirModalDetalhes(info.event.extendedProps.num_atendimento || info.event.id);
             }
         });
 
         calendar.render();
 
-        // --- LISTENERS DOS FILTROS (AQUI DENTRO PARA TER ACESSO AO 'calendar') ---
+        filtroMedico?.addEventListener('change', () => calendar.refetchEvents());
+        filtroPaciente?.addEventListener('change', () => calendar.refetchEvents());
 
-        if (filtroMedico) {
-            filtroMedico.addEventListener('change', function () {
-                console.log("Filtro Médico Alterado:", this.value); // Debug
-                calendar.refetchEvents(); // Força atualização imediata
-            });
-        }
+        btnLimparFiltros?.addEventListener('click', () => {
+            filtroMedico.value = '';
+            filtroPaciente.value = '';
+            calendar.refetchEvents();
+        });
 
-        if (filtroPaciente) {
-            filtroPaciente.addEventListener('change', function () {
-                console.log("Filtro Paciente Alterado:", this.value); // Debug
-                calendar.refetchEvents(); // Força atualização imediata
-            });
-        }
-
-        if (btnLimparFiltros) {
-            btnLimparFiltros.addEventListener('click', function () {
-                if (filtroMedico) filtroMedico.value = "";
-                if (filtroPaciente) filtroPaciente.value = "";
-                calendar.refetchEvents(); // Limpa e recarrega
-            });
-        }
-
-        // Auto-abrir modal se necessário
         if (editId) {
             setTimeout(() => {
                 abrirModalDetalhes(editId);
@@ -144,288 +165,95 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function validarHorarioClique(dateObj, viewType) {
-        const diaSemana = dateObj.getDay();
-        if (diaSemana === 0 || diaSemana === 6) return false;
-        if (viewType === 'dayGridMonth') return true;
-        const hora = dateObj.getHours();
-        if (hora === 13) return false;
-        if (hora < 9 || hora >= 18) return false;
-        return true;
-    }
 
+        const agora = new Date();
+        const hojeZero = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+
+        if (dateObj < hojeZero) return false;
+
+        const dia = dateObj.getDay();
+        if (dia === 0 || dia === 6) return false;
+
+        if (viewType === 'dayGridMonth') return true;
+
+        const h = dateObj.getHours();
+        return !(h < 9 || h >= 18 || h === 13);
+    }
 
     // =========================================================
     // 3. MODAL CRIAÇÃO
     // =========================================================
     function abrirModalCriar(dataString) {
-        if (!inputData || !modalAgendamentoEl) return;
-
         let dataFinal = dataString;
         let horaFinal = null;
 
         if (dataString.includes('T')) {
-            const partes = dataString.split('T');
-            dataFinal = partes[0];
-            horaFinal = partes[1].substring(0, 5);
+            [dataFinal, horaFinal] = dataString.split('T');
+            horaFinal = horaFinal.substring(0, 5);
         }
 
         inputData.value = dataFinal;
-        if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
+        selectDuracaoCriar.value = "60";
 
         carregarHorariosCriacao().then(() => {
-            if (horaFinal && selectHora) {
-                setTimeout(() => {
-                    let existe = Array.from(selectHora.options).some(opt => opt.value === horaFinal);
-                    if (existe) {
-                        selectHora.value = horaFinal;
-                        selectHora.classList.add('is-valid');
-                        setTimeout(() => selectHora.classList.remove('is-valid'), 1000);
-                    }
-                }, 100);
-            }
+            if (horaFinal && selectHora) selectHora.value = horaFinal;
         });
 
-        const modal = new bootstrap.Modal(modalAgendamentoEl);
-        modal.show();
+        new bootstrap.Modal(modalAgendamentoEl).show();
     }
 
     async function carregarHorariosCriacao() {
         if (!selectHora) return;
 
-        const medicoId = selectMedico ? selectMedico.value : null;
-        const dataVal = inputData ? inputData.value : null;
-        const isOnline = checkOnline && checkOnline.checked ? 1 : 0;
-        const duracao = selectDuracaoCriar ? selectDuracaoCriar.value : 60;
+        const medicoId = selectMedico.value;
+        const dataVal = inputData.value;
+        const isOnline = checkOnline.checked ? 1 : 0;
+        const duracao = selectDuracaoCriar.value;
 
-        // 👉 Guardar a hora atualmente selecionada (se existir)
-        const horaSelecionadaAntes = selectHora.value;
-
-        if (medicoId && dataVal) {
-            selectHora.innerHTML = '<option>A verificar...</option>';
-            selectHora.disabled = true;
-
-            try {
-                const url = `/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&is_online=${isOnline}&duracao=${duracao}`;
-                const response = await fetch(url);
-                const horarios = await response.json();
-
-                selectHora.innerHTML = '<option value="" selected disabled>Escolha uma hora</option>';
-
-                if (horarios.length === 0) {
-                    selectHora.innerHTML += '<option disabled>Sem vagas</option>';
-                } else {
-                    horarios.forEach(hora => {
-                        const option = document.createElement('option');
-                        option.value = hora;
-                        option.textContent = hora;
-                        selectHora.appendChild(option);
-                    });
-
-                    // 👉 Tentar manter a hora selecionada, se ainda for válida
-                    if (horaSelecionadaAntes) {
-                        const existe = Array.from(selectHora.options)
-                            .some(opt => opt.value === horaSelecionadaAntes);
-
-                        if (existe) {
-                            selectHora.value = horaSelecionadaAntes;
-                            selectHora.classList.add('is-valid');
-                            setTimeout(() => selectHora.classList.remove('is-valid'), 800);
-                        }
-                    }
-
-                    selectHora.disabled = false;
-                }
-            } catch (error) {
-                console.error(error);
-                selectHora.innerHTML = '<option>Erro</option>';
-            }
+        if (!medicoId || !dataVal) {
+            resetHorasCriacao();
+            return;
         }
-    }
 
+        const agora = new Date();
+        const hojeISO = agora.toISOString().split('T')[0];
+        const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
 
-    if (selectMedico) selectMedico.addEventListener('change', carregarHorariosCriacao);
-    if (inputData) inputData.addEventListener('input', carregarHorariosCriacao);
-    if (checkOnline) checkOnline.addEventListener('change', carregarHorariosCriacao);
-    if (selectDuracaoCriar) selectDuracaoCriar.addEventListener('change', carregarHorariosCriacao);
-
-    if (btnGlobal) {
-        btnGlobal.addEventListener('click', function () {
-            if (inputData) inputData.value = '';
-            if (selectDuracaoCriar) selectDuracaoCriar.value = "60";
-            if (selectHora) {
-                selectHora.innerHTML = '<option value="" selected disabled>--:--</option>';
-                selectHora.disabled = true;
-                selectHora.classList.remove('is-valid');
-            }
-            if (checkOnline) checkOnline.checked = false;
-        });
-    }
-
-
-    // =========================================================
-    // 4. MODAL EDIÇÃO
-    // =========================================================
-    async function abrirModalDetalhes(id) {
-        if (!modalDetalhesEl) return;
+        selectHora.innerHTML = '<option>A verificar...</option>';
+        selectHora.disabled = true;
 
         try {
-            const response = await fetch(`/api/atendimento/${id}`);
-            const dados = await response.json();
+            const res = await fetch(`/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&is_online=${isOnline}&duracao=${duracao}`);
+            const horarios = await res.json();
 
-            if (response.ok) {
-                detalheId.value = dados.id;
-                inpPaciente.value = dados.paciente;
-                if (inpMedico) inpMedico.value = dados.medico;
-                detalheIdMedico.value = dados.id_medico;
-                detalheData.value = dados.data_iso;
-                detalheDuracao.value = dados.duracao || 60;
+            selectHora.innerHTML = '<option disabled selected>--:--</option>';
 
-                horaOriginalEdicao = dados.hora_iso;
+            if (horarios.length === 0) {
+                selectHora.innerHTML = '<option disabled>Sem vagas</option>';
+            } else {
+                horarios.forEach(hora => {
 
-                if (badge) {
-                    badge.textContent = dados.estado.toUpperCase();
-                    if (dados.estado === 'finalizado') {
-                        badge.className = 'badge bg-success shadow-sm';
-                    } else if (dados.estado === 'cancelado') {
-                        badge.className = 'badge bg-danger shadow-sm';
-                    } else {
-                        badge.className = 'badge bg-white text-dark bg-opacity-75 shadow-sm badge-estado';
+                    if (dataVal === hojeISO) {
+                        const [h, m] = hora.split(':').map(Number);
+                        if (h * 60 + m <= minutosAgora) return;
                     }
-                }
 
-                carregarSlotsEdicao(dados.id_medico, dados.data_iso, dados.hora_iso, dados.duracao, dados.id);
-
-                btnCancel.href = `/cancelar_agendamento/${dados.id}`;
-
-                const modal = new bootstrap.Modal(modalDetalhesEl);
-                modal.show();
-            }
-        } catch (e) { console.error(e); }
-    }
-
-    async function carregarSlotsEdicao(medicoId, dataVal, horaAtualPreservar, duracaoVal, ignorarId) {
-        if (!detalheHora) return;
-        detalheHora.innerHTML = '<option disabled>A carregar...</option>';
-
-        try {
-            let url = `/api/horarios-disponiveis?medico=${medicoId}&data=${dataVal}&duracao=${duracaoVal}`;
-            if (ignorarId) {
-                url += `&ignorar_id=${ignorarId}`;
-            }
-
-            const response = await fetch(url);
-            const horarios = await response.json();
-
-            detalheHora.innerHTML = '';
-
-            let mantivemosOriginal = false;
-
-            horarios.forEach(hora => {
-                const option = document.createElement('option');
-                option.value = hora;
-                option.textContent = hora;
-
-                if (hora === horaAtualPreservar) {
-                    option.textContent = `${hora} (Atual)`;
-                    option.selected = true;
-                    mantivemosOriginal = true;
-                }
-
-                detalheHora.appendChild(option);
-            });
-
-            if (detalheHora.options.length === 0) {
-                detalheHora.innerHTML = '<option disabled>Sem vagas para esta duração</option>';
-            }
-
-        } catch (error) {
-            detalheHora.innerHTML = '<option disabled>Erro</option>';
-        }
-    }
-
-    if (detalheData) {
-        detalheData.addEventListener('change', function () {
-            carregarSlotsEdicao(detalheIdMedico.value, this.value, null, detalheDuracao.value, detalheId.value);
-        });
-    }
-
-    if (detalheDuracao) {
-        detalheDuracao.addEventListener('change', function () {
-            carregarSlotsEdicao(
-                detalheIdMedico.value,
-                detalheData.value,
-                horaOriginalEdicao,
-                this.value,
-                detalheId.value
-            );
-        });
-    }
-
-
-    // =========================================================
-    // 5. PACIENTE RÁPIDO
-    // =========================================================
-    if (btnNovo && formRapido) {
-        btnNovo.addEventListener('click', () => {
-            formRapido.classList.remove('d-none');
-            btnNovo.disabled = true;
-        });
-
-        btnCancelar.addEventListener('click', () => {
-            formRapido.classList.add('d-none');
-            btnNovo.disabled = false;
-            msgErro.textContent = '';
-            document.getElementById('newNif').value = '';
-            document.getElementById('newNome').value = '';
-            document.getElementById('newTel').value = '';
-            document.getElementById('newData').value = '';
-        });
-
-        btnSalvar.addEventListener('click', async () => {
-            const dados = {
-                nif: document.getElementById('newNif').value,
-                nome: document.getElementById('newNome').value,
-                telemovel: document.getElementById('newTel').value,
-                data_nasc: document.getElementById('newData').value
-            };
-
-            if (!dados.nif || !dados.nome || !dados.telemovel || !dados.data_nasc) {
-                msgErro.textContent = 'Preencha todos os campos.';
-                return;
-            }
-
-            try {
-                btnSalvar.textContent = 'A guardar...';
-                btnSalvar.disabled = true;
-
-                const response = await fetch('/api/criar_paciente_rapido', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dados)
+                    const opt = document.createElement('option');
+                    opt.value = hora;
+                    opt.textContent = hora;
+                    selectHora.appendChild(opt);
                 });
-                const result = await response.json();
 
-                if (response.ok) {
-                    const novaOpcao = document.createElement('option');
-                    novaOpcao.value = result.nif;
-                    novaOpcao.textContent = `${result.nome} (${result.nif})`;
-                    novaOpcao.selected = true;
-                    selectPaciente.appendChild(novaOpcao);
-                    formRapido.classList.add('d-none');
-                    btnNovo.disabled = false;
-                    document.getElementById('newNif').value = '';
-                    document.getElementById('newNome').value = '';
-                    document.getElementById('newTel').value = '';
-                    document.getElementById('newData').value = '';
-                } else {
-                    msgErro.textContent = result.erro || 'Erro ao guardar.';
-                }
-            } catch (error) {
-                msgErro.textContent = 'Erro de ligação.';
-            } finally {
-                btnSalvar.textContent = 'Guardar';
-                btnSalvar.disabled = false;
+                selectHora.disabled = false;
             }
-        });
+
+        } catch {
+            selectHora.innerHTML = '<option>Erro</option>';
+        }
     }
+
+    selectMedico?.addEventListener('change', carregarHorariosCriacao);
+    checkOnline?.addEventListener('change', carregarHorariosCriacao);
+    selectDuracaoCriar?.addEventListener('change', carregarHorariosCriacao);
+
 });

@@ -164,14 +164,24 @@
 
     <nav class="navbar navbar-expand-lg navbar-dark navbar-sga mb-5">
         <div class="container">
-            <a class="navbar-brand" href="/dashboard"><i class="fa-solid fa-brain me-2"></i>SGA Psicologia</a>
-            <div class="collapse navbar-collapse">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-brain me-2"></i>SGA
+                Psicologia</a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navAgenda">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navAgenda">
                 <ul class="navbar-nav ms-auto align-items-center">
-                    <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/agenda">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('pacientes') }}">Pacientes</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('equipa') }}">Equipa</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('agenda') }}">Agenda</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('relatorios') }}">Relatórios</a></li>
+
                     <li class="nav-item ms-3">
                         <a class="nav-link btn btn-sm btn-outline-light px-4 rounded-pill btn-sair"
-                            href="/logout">Sair</a>
+                            href="{{ url_for('logout') }}">Sair ({{ nome_user }})</a>
                     </li>
                 </ul>
             </div>
