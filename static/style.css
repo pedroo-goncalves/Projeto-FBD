@@ -1,18 +1,63 @@
-        .card-dashboard {
-            border: none;
-            border-radius: 10px;
-            transition: transform 0.2s;
-        }
+.card-dashboard {
+    border: none;
+    border-radius: 10px;
+    transition: transform 0.2s;
+}
 
-        .card-dashboard:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
+.card-dashboard:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
 
-        .icon-bg {
-            opacity: 0.2;
-            position: absolute;
-            right: 10px;
-            bottom: 10px;
-            font-size: 3rem;
-        }
+.icon-bg {
+    opacity: 0.2;
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    font-size: 3rem;
+}
+
+/* === ESTILOS GERAIS DA NAVBAR (Módulo Global) === */
+.navbar-sga {
+    background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%) !important;
+    padding: 1rem 0;
+    box-shadow: 0 4px 20px rgba(13, 110, 253, 0.2);
+}
+
+.navbar-sga .navbar-brand {
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    font-size: 1.4rem;
+}
+
+.navbar-sga .nav-link {
+    font-weight: 500;
+    transition: opacity 0.2s;
+    opacity: 0.85;
+    /* Cor normal */
+}
+
+.navbar-sga .nav-link:hover {
+    opacity: 1;
+}
+
+/* Estado Ativo Automático */
+.navbar-sga .nav-link.active {
+    opacity: 1;
+    font-weight: 700;
+    border-bottom: 2px solid white;
+    /* Indicador visual extra */
+}
+
+.btn-sair {
+    border: 2px solid rgba(255, 255, 255, 0.8) !important;
+    color: white !important;
+    transition: all 0.3s ease;
+}
+
+.btn-sair:hover {
+    background-color: white !important;
+    color: #0d6efd !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}

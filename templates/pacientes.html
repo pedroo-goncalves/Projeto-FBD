@@ -6,68 +6,76 @@
     <title>Os Meus Pacientes - SGA</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
     <style>
-        .patient-card { transition: all 0.2s; border: none; border-radius: 12px; }
-        .patient-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1) !important; }
-        .contact-link { text-decoration: none; color: inherit; font-size: 0.9rem; }
-        .contact-link:hover { color: #0d6efd; }
-        .badge-perfil { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; }
+        .patient-card {
+            transition: all 0.2s;
+            border: none;
+            border-radius: 12px;
+        }
+
+        .patient-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        .contact-link {
+            text-decoration: none;
+            color: inherit;
+            font-size: 0.9rem;
+        }
+
+        .contact-link:hover {
+            color: #0d6efd;
+        }
+
+        .badge-perfil {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
     </style>
 </head>
 
 <body class="bg-light">
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">
-                <i class="fa-solid fa-brain me-2"></i>SGA Psicologia
-            </a>
-            <div class="collapse navbar-collapse">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="/pacientes">Pacientes</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/equipa">Equipa</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/agenda">Agenda</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/relatorios">Relatórios</a></li>
-                    <li class="nav-item ms-lg-3">
-                        <a class="nav-link btn btn-sm btn-outline-light px-3" href="/logout">Sair ({{ nome_user }})</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+    {% include 'partials/navbar.html' %}
 
     <div class="container pb-5">
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
         {% endwith %}
 
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div> 
+            <div>
                 <h3 class="text-secondary fw-bold mb-0"><i class="fa-solid fa-users me-2"></i>Os Meus Pacientes</h3>
                 <div class="mt-1">
                     {% if session.get('perfil') == 'admin' %}
-                        <span class="badge bg-info text-dark badge-perfil">Acesso de Administrador</span>
+                    <span class="badge bg-info text-dark badge-perfil">Acesso de Administrador</span>
                     {% else %}
-                        <span class="badge bg-secondary badge-perfil">Acesso de Colaborador</span>
+                    <span class="badge bg-secondary badge-perfil">Acesso de Colaborador</span>
                     {% endif %}
                 </div>
-            </div> 
+            </div>
             <div class="d-flex gap-2">
                 {% if session.get('perfil') == 'admin' %}
-                    <a href="{{ url_for('pacientes_arquivo') }}" class="btn btn-outline-secondary shadow-sm" title="Arquivo">
-                        <i class="fa-solid fa-box-archive"></i>
-                    </a>
-                    <button class="btn btn-success shadow-sm rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#modalNovoPaciente">
-                        <i class="fa-solid fa-user-plus me-2"></i>Novo Paciente
-                    </button>
+                <a href="{{ url_for('pacientes_arquivo') }}" class="btn btn-outline-secondary shadow-sm"
+                    title="Arquivo">
+                    <i class="fa-solid fa-box-archive"></i>
+                </a>
+                <button class="btn btn-success shadow-sm rounded-pill px-4" data-bs-toggle="modal"
+                    data-bs-target="#modalNovoPaciente">
+                    <i class="fa-solid fa-user-plus me-2"></i>Novo Paciente
+                </button>
                 {% endif %}
             </div>
         </div>
@@ -78,8 +86,8 @@
                     <span class="input-group-text bg-white border-end-0 text-muted">
                         <i class="fa-solid fa-magnifying-glass"></i>
                     </span>
-                    <input type="text" id="patientSearch" class="form-control border-start-0 ps-0" 
-                           placeholder="Pesquisar por nome ou NIF..." onkeyup="filtrarPacientes()">
+                    <input type="text" id="patientSearch" class="form-control border-start-0 ps-0"
+                        placeholder="Pesquisar por nome ou NIF..." onkeyup="filtrarPacientes()">
                 </div>
             </div>
         </div>
@@ -89,16 +97,18 @@
             <div class="col-md-6 col-lg-4 patient-card-col">
                 <div class="card h-100 shadow-sm patient-card">
                     <div class="card-body p-4 text-center">
-                        <img src="https://ui-avatars.com/api/?name={{ p[1]|replace(' ', '+') }}&background=e9ecef&color=0d6efd" 
-                             class="rounded-circle mb-3 shadow-sm" width="75">
-                        
+                        <img src="https://ui-avatars.com/api/?name={{ p[1]|replace(' ', '+') }}&background=e9ecef&color=0d6efd"
+                            class="rounded-circle mb-3 shadow-sm" width="75">
+
                         <h5 class="fw-bold mb-1">
-                            <a href="{{ url_for('pacientes_detalhes', id_paciente=p[0]) }}" class="text-dark text-decoration-none patient-name">
+                            <a href="{{ url_for('pacientes_detalhes', id_paciente=p[0]) }}"
+                                class="text-dark text-decoration-none patient-name">
                                 {{ p[1] }} </a>
                         </h5>
-                        
+
                         <div class="mb-3">
-                            <span class="badge bg-light text-muted border rounded-pill patient-nif">NIF: {{ p[2] }}</span>
+                            <span class="badge bg-light text-muted border rounded-pill patient-nif">NIF: {{ p[2]
+                                }}</span>
                         </div>
 
                         <div class="text-start mb-3 bg-light p-3 rounded-3">
@@ -115,11 +125,13 @@
                         <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
                             <small class="text-muted">Desde: {{ p[5] }}</small>
                             {% if session.get('perfil') == 'admin' %}
-                            <a href="{{ url_for('remover_paciente', id_paciente=p[0]) }}" 
-                               class="btn btn-sm btn-link text-danger p-0" 
-                               onclick="return confirm('Desativar paciente {{ p[1] }}?')">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </a>
+                            <form action="{{ url_for('eliminar_paciente', id_paciente=p[0]) }}" method="POST"
+                                class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-link text-danger p-0"
+                                    onclick="return confirm('Desativar paciente {{ p[1] }}?')">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </form>
                             {% endif %}
                         </div>
                     </div>
@@ -150,7 +162,8 @@
                         <div class="row g-3 mb-4">
                             <div class="col-md-6">
                                 <div class="form-floating">
-                                    <input type="text" name="nome" class="form-control" id="fNome" placeholder="Nome" required>
+                                    <input type="text" name="nome" class="form-control" id="fNome" placeholder="Nome"
+                                        required>
                                     <label for="fNome">Nome Completo</label>
                                 </div>
                             </div>
@@ -174,7 +187,8 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="form-floating">
-                                    <input type="tel" name="telefone" class="form-control" id="fTel" maxlength="9" required>
+                                    <input type="tel" name="telefone" class="form-control" id="fTel" maxlength="9"
+                                        required>
                                     <label for="fTel">Telefone</label>
                                 </div>
                             </div>
@@ -186,16 +200,21 @@
                                 <div class="form-floating">
                                     <select name="id_medico" id="medico_responsavel" class="form-select" required>
                                         <option value="" disabled selected>Escolha o profissional...</option>
+                                        {% if trabalhadores %}
                                         {% for m in trabalhadores %}
-                                            <option value="{{ m[5] }}">{{ m[0] }}</option>
+                                        <option value="{{ m.id_trabalhador }}">{{ m.nome }}</option>
                                         {% endfor %}
+                                        {% else %}
+                                        <option value="" disabled>Lista de médicos não carregada</option>
+                                        {% endif %}
                                     </select>
                                     <label for="medico_responsavel">Trabalhador Responsável</label>
                                 </div>
                             </div>
                             <div class="col-12">
                                 <div class="form-floating">
-                                    <textarea name="observacoes" class="form-control" id="fObs" style="height: 100px"></textarea>
+                                    <textarea name="observacoes" class="form-control" id="fObs"
+                                        style="height: 100px"></textarea>
                                     <label for="fObs">Observações Iniciais</label>
                                 </div>
                             </div>
@@ -225,7 +244,7 @@
         // Script de confirmação de associação
         const form = document.getElementById('formNovoPaciente');
         if (form) {
-            form.onsubmit = function(e) {
+            form.onsubmit = function (e) {
                 const paciente = this.nome.value;
                 const select = document.getElementById('medico_responsavel');
                 const medico = select.options[select.selectedIndex].text;
@@ -237,4 +256,5 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

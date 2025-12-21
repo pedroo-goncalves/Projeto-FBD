@@ -1,0 +1,40 @@
+<nav class="navbar navbar-expand-lg navbar-dark navbar-sga mb-5">
+    <div class="container">
+        <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+            <i class="fa-solid fa-brain me-2"></i>SGA Psicologia
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navGlobal">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navGlobal">
+            <ul class="navbar-nav ms-auto align-items-center">
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}"
+                        href="{{ url_for('dashboard') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint == 'pacientes' or request.endpoint == 'pacientes_detalhes' else '' }}"
+                        href="{{ url_for('pacientes') }}">Pacientes</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint == 'equipa' or request.endpoint == 'equipa_detalhes' else '' }}"
+                        href="{{ url_for('equipa') }}">Equipa</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint == 'agenda' else '' }}"
+                        href="{{ url_for('agenda') }}">Agenda</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint.startswith('relatorios') else '' }}"
+                        href="{{ url_for('relatorios') }}">Relatórios</a>
+                </li>
+                <li class="nav-item ms-lg-3 mt-3 mt-lg-0">
+                    <a class="nav-link btn btn-sm btn-outline-light px-4 rounded-pill btn-sair"
+                        href="{{ url_for('logout') }}">
+                        Sair ({{ nome_user if nome_user else 'Utilizador' }})
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>

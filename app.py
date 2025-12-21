@@ -119,7 +119,6 @@ def dashboard():
 @login_required
 
 def pacientes():
-    print(f"{session['user_id']}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -234,8 +233,6 @@ def equipa_detalhes(id_trabalhador):
 @app.route('/relatorios')
 @login_required
 def relatorios():
-    if 'user_id' not in session: return redirect(url_for('login'))
-    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
