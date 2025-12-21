@@ -37,6 +37,10 @@ document.addEventListener('DOMContentLoaded', function () {
         expandRows: true,
         allDaySlot: false,
 
+        validRange: {
+            start: new Date()
+        },
+
         // --- CORREÇÃO VISUAL PARA ADMIN ---
         slotEventOverlap: false, // Isto impede que fiquem uns em cima dos outros
         // ----------------------------------
