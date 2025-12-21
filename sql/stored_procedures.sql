@@ -42,70 +42,49 @@ CREATE OR ALTER PROCEDURE sp_inserirPaciente
     @NIF_paciente CHAR(9),
     @data_inscricao DATE,
     @observacoes VARCHAR(250) = NULL,
-    @NIF_trabalhador CHAR(9) = NULL -- Recebe o NIF que vem do Modal
+    @NIF_trabalhador CHAR(9) = NULL -- Recebe o NIF do médico (opcional)
 AS
 /*
--- =============================================
 -- Author:      Bernardo Santos
--- Create Date: 16/12/2025
--- Description: Insere um paciente
--- =============================================
+-- Description: Cria ou Reativa um paciente e gera o vínculo clínico num só passo.
 */
 BEGIN
     SET NOCOUNT ON;
-    BEGIN TRANSACTION;
-        -- 1. Cria o Paciente
-        INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
-        VALUES (@NIF_paciente, @data_inscricao, @observacoes, 1);
 
-        -- 2. Cria o Vínculo Clínico por NIF (Acaba com o erro de FK)
-        IF @NIF_trabalhador IS NOT NULL
-        BEGIN
-            INSERT INTO SGA_VINCULO_CLINICO (NIF_trabalhador, NIF_paciente, tipo_vinculo)
-            VALUES (@NIF_trabalhador, @NIF_paciente, 'Responsável Principal');
-        END
-    COMMIT;
-END;
-
-    -- Verifica Pessoa
-    IF NOT EXISTS (SELECT 1 FROM SGA_PESSOA WHERE NIF = @NIF)
-        THROW 50002, 'Pessoa nao encontrada.', 1;
-
-    -- Verifica se Paciente já existe (para devolver o ID em vez de erro)
-    DECLARE @id_existente INT;
-    SELECT @id_existente = id_paciente FROM SGA_PACIENTE WHERE NIF = @NIF;
+    -- 1. Validação: A Pessoa tem de existir
+    IF NOT EXISTS (SELECT 1 FROM SGA_PESSOA WHERE NIF = @NIF_paciente)
+        THROW 50002, 'Pessoa não encontrada. Registe a Pessoa antes do Paciente.', 1;
 
     BEGIN TRY
         BEGIN TRANSACTION;
-            
+
+            -- 2. Verificar se já existe (Upsert)
+            DECLARE @id_existente INT;
+            SELECT @id_existente = id_paciente FROM SGA_PACIENTE WHERE NIF = @NIF_paciente;
+
             IF @id_existente IS NULL
             BEGIN
+                -- Inserir novo
                 INSERT INTO SGA_PACIENTE (NIF, data_inscricao, observacoes, ativo)
-                VALUES (@NIF, @data_inscricao, @observacoes, 1);
-                SET @id_paciente = SCOPE_IDENTITY();
+                VALUES (@NIF_paciente, @data_inscricao, @observacoes, 1);
             END
             ELSE
             BEGIN
-                UPDATE SGA_PACIENTE SET ativo = 1 WHERE id_paciente = @id_existente;
-                SET @id_paciente = @id_existente;
+                -- Reativar existente
+                UPDATE SGA_PACIENTE 
+                SET ativo = 1, observacoes = @observacoes 
+                WHERE id_paciente = @id_existente;
             END
 
-            -- LÓGICA CORRIGIDA: Inserir Vínculo usando NIFs
-            IF @id_medico_responsavel IS NOT NULL
+            -- 3. Criar Vínculo Clínico (se um médico foi indicado)
+            IF @NIF_trabalhador IS NOT NULL
             BEGIN
-                -- 1. Descobrir NIF do Médico
-                DECLARE @NifMedico CHAR(9);
-                SELECT @NifMedico = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_medico_responsavel;
-
-                -- 2. Inserir se não existir
-                IF @NifMedico IS NOT NULL AND NOT EXISTS (
-                    SELECT 1 FROM SGA_VINCULO_CLINICO 
-                    WHERE NIF_trabalhador = @NifMedico AND NIF_paciente = @NIF
-                )
+                -- Garante que não duplica o vínculo
+                IF NOT EXISTS (SELECT 1 FROM SGA_VINCULO_CLINICO 
+                               WHERE NIF_trabalhador = @NIF_trabalhador AND NIF_paciente = @NIF_paciente)
                 BEGIN
-                    -- Nota: Removemos 'id_trabalhador' e 'id_paciente' e usamos os NIFs
                     INSERT INTO SGA_VINCULO_CLINICO (NIF_trabalhador, NIF_paciente, tipo_vinculo, data_inicio)
-                    VALUES (@NifMedico, @NIF, 'Responsável', GETDATE());
+                    VALUES (@NIF_trabalhador, @NIF_paciente, 'Responsável', GETDATE());
                 END
             END
 
@@ -115,10 +94,8 @@ END;
         IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
         THROW;
     END CATCH
-END
+END;
 GO
-
-
 
 CREATE OR ALTER PROCEDURE sp_atualizarObservacoesPaciente
     @id INT,
@@ -661,34 +638,39 @@ END;
 GO
 
 CREATE OR ALTER PROCEDURE sp_listarPacientesSGA
-    @nif_login CHAR(9),
+    @id_trabalhador INT, -- Alterado de NIF para INT para compatibilidade com a Sessão
     @perfil VARCHAR(20)
 AS
 /*
--- ==========================================================
--- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Listar os pacientes no sistema (se Admin é vê tudo, se não for vê apenas os que estão a seu cargo)
--- ==========================================================
+-- Author:      Pedro Gonçalves
+-- Description: Lista os pacientes. Se Admin vê tudo. Se Médico vê apenas os seus vínculos.
+--              Aceita ID do trabalhador e converte internamente para NIF se necessário.
 */
 BEGIN
     SET NOCOUNT ON;
+
     IF @perfil = 'admin'
     BEGIN
         SELECT Pac.id_paciente, P.nome, P.NIF, P.telefone, P.email, 
                FORMAT(Pac.data_inscricao, 'dd/MM/yyyy'), Pac.observacoes
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
-        WHERE Pac.ativo = 1;
+        WHERE Pac.ativo = 1
+        ORDER BY P.nome;
     END
     ELSE
     BEGIN
+        -- Passo extra: Descobrir o NIF do médico a partir do ID
+        DECLARE @nif_medico CHAR(9);
+        SELECT @nif_medico = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+
         SELECT Pac.id_paciente, P.nome, P.NIF, P.telefone, P.email, 
                FORMAT(Pac.data_inscricao, 'dd/MM/yyyy'), Pac.observacoes
         FROM SGA_PACIENTE Pac
         JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
         INNER JOIN SGA_VINCULO_CLINICO V ON Pac.NIF = V.NIF_paciente
-        WHERE V.NIF_trabalhador = @nif_login AND Pac.ativo = 1;
+        WHERE V.NIF_trabalhador = @nif_medico AND Pac.ativo = 1
+        ORDER BY P.nome;
     END
 END;
 GO
@@ -827,34 +809,6 @@ BEGIN
     LEFT JOIN SGA_CONTRATADO C ON T.id_trabalhador = C.id_trabalhador
     LEFT JOIN SGA_PRESTADOR_SERVICO S ON T.id_trabalhador = S.id_trabalhador
     WHERE T.id_trabalhador = @id_trabalhador_alvo;
-END;
-GO
-
-
-CREATE OR ALTER PROCEDURE sp_listarMeusPacientesVinculo
-    @nif_login CHAR(9)
-AS
-/*
--- ==========================================================
--- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Permite listar os pacientes com os quais um dado trabalhador tem um vinculo
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    SELECT 
-        P.id_paciente,    -- [0]
-        Pess.nome,        -- [1]
-        Pess.NIF,         -- [2]
-        Pess.telefone,    -- [3]
-        Pess.email,       -- [4]
-        FORMAT(P.data_inscricao, 'dd/MM/yyyy'), -- [5]
-        P.observacoes     -- [6]
-    FROM SGA_PACIENTE P
-    JOIN SGA_PESSOA Pess ON P.NIF = Pess.NIF
-    INNER JOIN SGA_VINCULO_CLINICO V ON P.NIF = V.NIF_paciente
-    WHERE V.NIF_trabalhador = @nif_login AND P.ativo = 1;
 END;
 GO
 
@@ -1156,34 +1110,6 @@ BEGIN
         IF @@TRANCOUNT > 0 ROLLBACK;
         THROW;
     END CATCH
-END;
-GO
-
-
-CREATE OR ALTER PROCEDURE sp_listarMeusPacientesVinculo
-    @nif_login CHAR(9)
-AS
-/*
--- ==========================================================
--- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Permite listar os pacientes com os quais um dado trabalhador tem um vinculo
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    SELECT 
-        P.id_paciente,    -- [0]
-        Pess.nome,        -- [1]
-        Pess.NIF,         -- [2]
-        Pess.telefone,    -- [3]
-        Pess.email,       -- [4]
-        FORMAT(P.data_inscricao, 'dd/MM/yyyy'), -- [5]
-        P.observacoes     -- [6]
-    FROM SGA_PACIENTE P
-    JOIN SGA_PESSOA Pess ON P.NIF = Pess.NIF
-    INNER JOIN SGA_VINCULO_CLINICO V ON P.NIF = V.NIF_paciente
-    WHERE V.NIF_trabalhador = @nif_login AND P.ativo = 1;
 END;
 GO
 
