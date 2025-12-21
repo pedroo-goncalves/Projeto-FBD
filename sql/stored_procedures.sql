@@ -737,31 +737,37 @@ GO
 
 CREATE OR ALTER PROCEDURE sp_obterFichaCompletaPaciente
     @id_paciente INT,
-    @nif_trabalhador CHAR(9),
+    @id_trabalhador INT, -- Alterado de @nif_trabalhador CHAR(9) para INT
     @perfil VARCHAR(20)
 AS
 /*
 -- ==========================================================
 -- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Permite aceder a todas as informações dos pacientes na página de detalhes 
---              se for admin~. Se for trabalhador, acede apenas aos detalhes dos pacientes a seu cargo
+-- Update Date: 21/12/2025
+-- Descrição:   Permite aceder a todas as informações dos pacientes.
+--              Recebe o ID do trabalhador e converte para NIF para validar permissões.
 -- ==========================================================
 */
 BEGIN
     SET NOCOUNT ON;
     
-    -- Traduz ID para NIF do paciente para a verificação
+    -- 1. Traduz ID do Trabalhador para NIF (Para validação na tabela de Vínculos)
+    DECLARE @nif_trabalhador CHAR(9);
+    SELECT @nif_trabalhador = NIF FROM SGA_TRABALHADOR WHERE id_trabalhador = @id_trabalhador;
+
+    -- 2. Traduz ID do Paciente para NIF
     DECLARE @nif_p CHAR(9) = (SELECT NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente);
 
+    -- 3. Validação de Segurança
     IF @perfil <> 'admin' AND NOT EXISTS (
         SELECT 1 FROM SGA_VINCULO_CLINICO 
-        WHERE NIF_paciente = @nif_p AND NIF_trabalhador = @nif_trabalhador -- Nomes novos
+        WHERE NIF_paciente = @nif_p AND NIF_trabalhador = @nif_trabalhador
     )
     BEGIN
-        THROW 50005, 'Acesso Negado: Sem permissão clínica.', 1;
+        THROW 50005, 'Acesso Negado: Sem permissão clínica para este paciente.', 1;
     END
 
+    -- 4. Retorna os dados
     SELECT Pac.id_paciente, Pess.nome, Pess.NIF, Pess.data_nascimento, Pess.telefone, Pess.email, Pac.data_inscricao, Pac.observacoes, Pac.ativo
     FROM SGA_PACIENTE Pac
     JOIN SGA_PESSOA Pess ON Pac.NIF = Pess.NIF

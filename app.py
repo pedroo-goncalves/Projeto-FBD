@@ -230,8 +230,16 @@ def equipa_detalhes(id_trabalhador):
         cursor = conn.cursor()
         cursor.execute("EXEC sp_obterDetalhesTrabalhador ?, ?", (id_trabalhador, session['perfil']))
         trabalhador = cursor.fetchone()
+
+        cursor.execute("EXEC sp_listarPacientesDeTrabalhador ?", (id_trabalhador,))
+        lista_pacientes = cursor.fetchall()
+
+
+
+
+
         conn.close()
-        return render_template('equipa_detalhes.html', t=trabalhador, nome_user=session['user_name'])
+        return render_template('equipa_detalhes.html', t=trabalhador, pacientes=lista_pacientes, nome_user=session['user_name'])
     except Exception as e:
         flash(f"Acesso Negado: {e}", "danger")
         return redirect(url_for('equipa'))
