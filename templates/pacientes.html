@@ -125,7 +125,7 @@
                         <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
                             <small class="text-muted">Desde: {{ p[5] }}</small>
                             {% if session.get('perfil') == 'admin' %}
-                            <form action="{{ url_for('eliminar_paciente', id_paciente=p[0]) }}" method="POST"
+                            <form action="{{ url_for('remover_paciente', id_paciente=p[0]) }}" method="POST"
                                 class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-link text-danger p-0"
                                     onclick="return confirm('Desativar paciente {{ p[1] }}?')">

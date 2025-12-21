@@ -464,7 +464,7 @@ def equipa_arquivo():
         lista = []
     return render_template('equipa_arquivo.html', equipa=lista, nome_user=session.get('user_name'))
 
-@app.route('/admin/remover_paciente/<int:id_paciente>')
+@app.route('/admin/remover_paciente/<int:id_paciente>', methods=['POST'])
 @admin_required
 def remover_paciente(id_paciente):
     try:
@@ -497,8 +497,18 @@ def ativar_paciente(id_paciente):
 @app.route('/pacientes/arquivo')
 @login_required
 def pacientes_arquivo():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Chama a Stored Procedure que criaste para listar os inativos
+        cursor.execute("EXEC sp_listarPacientesInativos")
+        lista = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        flash(f"Erro ao carregar arquivo: {e}", "danger")
+        lista = []
     # Rota que faltava para listar pacientes inativos/arquivados
-    return render_template('pacientes_arquivo.html', nome_user=session.get('user_name'))
+    return render_template('pacientes_arquivo.html', pacientes=lista, nome_user=session.get('user_name'))
 
 # ==============================================================================
 # API JSON

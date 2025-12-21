@@ -1211,32 +1211,6 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE sp_listarTrabalhadoresDePaciente
-    @id_paciente INT
-AS
-/*
--- ==========================================================
--- Autor:       Pedro Gonçalves
--- Create Date: 18/12/2025
--- Descrição:   Permite-nos listar os trabalhadores de um paciente pelo vínculo (detalhes)
--- ==========================================================
-*/
-BEGIN
-    SET NOCOUNT ON;
-    DECLARE @nif_pac CHAR(9) = (SELECT NIF FROM SGA_PACIENTE WHERE id_paciente = @id_paciente);
-
-    SELECT 
-        T.id_trabalhador, 
-        Pe.nome, 
-        T.tipo_perfil,
-        V.tipo_vinculo
-    FROM SGA_VINCULO_CLINICO V
-    JOIN SGA_TRABALHADOR T ON V.NIF_trabalhador = T.NIF
-    JOIN SGA_PESSOA Pe ON T.NIF = Pe.NIF
-    WHERE V.NIF_paciente = @nif_pac AND T.ativo = 1;
-END;
-GO
-
 CREATE OR ALTER PROCEDURE sp_listarProcessosClinicosAtivos
     @id_trabalhador_sessao INT,
     @perfil VARCHAR(20)
