@@ -26,46 +26,21 @@ def obter_horarios_livres(cursor, id_medico, data, is_online=0, duracao=60, igno
         return []
     
 def listar_eventos_calendario(cursor, user_id, perfil, filtro_medico_id=None, filtro_paciente_nif=None):
-    # Query Base
-    query = """
-    SELECT 
-        A.num_atendimento,
-        PessPac.nome AS NomePaciente,
-        A.data_inicio,
-        A.data_fim,
-        A.estado,
-        PessMed.nome AS NomeMedico
-    FROM SGA_ATENDIMENTO A
-    JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
-    JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
-    JOIN SGA_PESSOA PessPac ON Pac.NIF = PessPac.NIF
-    JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
-    JOIN SGA_TRABALHADOR T ON TA.id_trabalhador = T.id_trabalhador
-    JOIN SGA_PESSOA PessMed ON T.NIF = PessMed.NIF
-    WHERE A.estado != 'cancelado'
     """
-    
-    params = []
+    Lista eventos para o calendário usando a Stored Procedure sp_listarEventosCalendario.
+    """
+    try:
+        f_medico = filtro_medico_id if filtro_medico_id else None
+        f_paciente = filtro_paciente_nif if filtro_paciente_nif else None
 
-    # 1. Regra de Segurança Base (Perfil)
-    if perfil == 'colaborador':
-        query += " AND TA.id_trabalhador = ?"
-        params.append(user_id)
-        # Nota: Se for colaborador, ignoramos o filtro_medico_id que vem do front-end
-        # para garantir que ele não vê agenda de outros.
-    
-    # 2. Filtro de Médico (Apenas se for Admin)
-    elif perfil == 'admin' and filtro_medico_id:
-        query += " AND TA.id_trabalhador = ?"
-        params.append(filtro_medico_id)
-
-    # 3. Filtro de Paciente (Para todos)
-    if filtro_paciente_nif:
-        query += " AND PessPac.NIF = ?"
-        params.append(filtro_paciente_nif)
-
-    cursor.execute(query, params)
-    return cursor.fetchall()
+        cursor.execute("EXEC sp_listarEventosCalendario ?, ?, ?, ?", 
+                       (user_id, perfil, f_medico, f_paciente))
+        
+        return cursor.fetchall()
+        
+    except Exception as e:
+        print(f"Erro ao listar eventos do calendário: {e}")
+        return []
 
 
 def obter_detalhes_atendimento(cursor, id_atendimento):

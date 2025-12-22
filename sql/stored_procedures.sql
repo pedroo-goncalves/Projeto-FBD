@@ -91,7 +91,7 @@ BEGIN
         SELECT @ConsultasHoje = COUNT(*) 
         FROM SGA_ATENDIMENTO 
         WHERE CAST(data_inicio AS DATE) = CAST(GETDATE() AS DATE)
-          AND estado == 'agendado';
+          AND estado != 'cancelado';
     END
     ELSE
     BEGIN
@@ -100,7 +100,7 @@ BEGIN
         JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
         WHERE ta.id_trabalhador = @id_trabalhador
           AND CAST(a.data_inicio AS DATE) = CAST(GETDATE() AS DATE)
-          AND a.estado == 'agendado';
+          AND a.estado != 'cancelado';
     END
 
     SELECT 
@@ -372,25 +372,32 @@ CREATE OR ALTER PROCEDURE sp_listarEventosCalendario
 AS
 BEGIN
     SET NOCOUNT ON;
+
     SELECT DISTINCT
-        A.num_atendimento, -- [0]
-        P.nome,            -- [1]
-        A.data_inicio,     -- [2]
-        A.data_fim,        -- [3]
-        A.estado,          -- [4]
-        PMed.nome          -- [5]
+        A.num_atendimento,
+        PessPac.nome AS NomePaciente,
+        A.data_inicio,
+        A.data_fim,
+        A.estado,
+        PessMed.nome AS NomeMedico
     FROM SGA_ATENDIMENTO A
     JOIN SGA_PACIENTE_ATENDIMENTO PA ON A.num_atendimento = PA.num_atendimento
     JOIN SGA_PACIENTE Pac ON PA.id_paciente = Pac.id_paciente
-    JOIN SGA_PESSOA P ON Pac.NIF = P.NIF
+    JOIN SGA_PESSOA PessPac ON Pac.NIF = PessPac.NIF
     JOIN SGA_TRABALHADOR_ATENDIMENTO TA ON A.num_atendimento = TA.num_atendimento
-    JOIN SGA_TRABALHADOR TM ON TA.id_trabalhador = TM.id_trabalhador
-    JOIN SGA_PESSOA PMed ON TM.NIF = PMed.NIF
+    JOIN SGA_TRABALHADOR T ON TA.id_trabalhador = T.id_trabalhador
+    JOIN SGA_PESSOA PessMed ON T.NIF = PessMed.NIF
     WHERE A.estado != 'cancelado'
-      AND (@perfil = 'admin' OR TA.id_trabalhador = @id_user)
-      AND (@filtro_medico IS NULL OR TA.id_trabalhador = @filtro_medico)
-      AND (@filtro_paciente_nif IS NULL OR Pac.NIF = @filtro_paciente_nif);
-END;
+      AND (
+          -- Se for colaborador, SÓ vê os seus (ignora filtro_medico)
+          (@perfil = 'colaborador' AND TA.id_trabalhador = @id_user)
+          OR
+          -- Se for admin, vê tudo OU filtra por médico específico
+          (@perfil = 'admin' AND (@filtro_medico IS NULL OR TA.id_trabalhador = @filtro_medico))
+      )
+      -- Filtro de Paciente (Aplica-se a todos)
+      AND (@filtro_paciente_nif IS NULL OR PessPac.NIF = @filtro_paciente_nif);
+END
 GO
 
 CREATE OR ALTER PROCEDURE sp_editarAgendamento
