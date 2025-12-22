@@ -91,7 +91,7 @@ BEGIN
         SELECT @ConsultasHoje = COUNT(*) 
         FROM SGA_ATENDIMENTO 
         WHERE CAST(data_inicio AS DATE) = CAST(GETDATE() AS DATE)
-          AND estado != 'cancelado';
+          AND estado == 'agendado';
     END
     ELSE
     BEGIN
@@ -100,7 +100,7 @@ BEGIN
         JOIN SGA_TRABALHADOR_ATENDIMENTO ta ON a.num_atendimento = ta.num_atendimento
         WHERE ta.id_trabalhador = @id_trabalhador
           AND CAST(a.data_inicio AS DATE) = CAST(GETDATE() AS DATE)
-          AND a.estado != 'cancelado';
+          AND a.estado == 'agendado';
     END
 
     SELECT 
